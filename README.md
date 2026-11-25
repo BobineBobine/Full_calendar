@@ -23,6 +23,12 @@ directement les notes d'événements du plugin Obsidian **Full Calendar**
   Le corps de la note et les propriétés inconnues sont conservés.
 - Les calendriers, couleurs, premier jour de la semaine et vue par défaut sont importés depuis la config du plugin (`data.json`).
 - Cache local : ouverture instantanée et lecture hors ligne. Seules les notes modifiées sont retéléchargées.
+- **Assistant IA** (bouton ✦ en haut) : tu écris des consignes pour Claude, chacune devient une note dans
+  `_IA/consignes/` du coffre (dossier réglable). Chaque soir, une tâche planifiée Claude les traite, met à jour leur
+  statut (*En file*, *Question pour toi*, *Fait*) et écrit sa réponse sous un titre `## Claude` : elle s'affiche dans l'appli.
+  Tu peux répondre à une question, retirer une consigne pas encore traitée, ou partir d'un événement
+  (« Demander à l'IA » dans sa fiche : la note est jointe en lien). L'appli ne fait que créer des notes, jamais
+  les modifier : pas de conflit possible avec la tâche du soir.
 - Thème clair ou sombre automatique. Le bouton retour d'Android ferme les fenêtres.
 - Aucun serveur. L'appli parle directement à OneDrive depuis ton navigateur.
 
@@ -84,4 +90,5 @@ Tests : `node tests/md.test.mjs && node tests/extra.test.mjs`.
 - `js/auth.js` : connexion OAuth (PKCE).
 - `js/nlp.js` : saisie rapide en français.
 - `js/markdown.js` : rendu des notes et cases à cocher.
+- `js/assist.js` : format des notes de consigne pour l'assistant IA.
 - `js/app.js` : interface (FullCalendar 6, fourni dans `vendor/`, licence MIT).

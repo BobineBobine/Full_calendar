@@ -29,3 +29,22 @@ assert.match(html, /<a href="https:\/\/ex.com"/);
 assert.equal(toggleTask('a\n- [ ] x\n  - [x] y', 1), 'a\n- [x] x\n  - [x] y');
 assert.equal(toggleTask('a\n- [ ] x\n  - [x] y', 2), 'a\n- [ ] x\n  - [ ] y');
 console.log('OK - nlp + markdown');
+
+// Assistant IA : consignes
+import { buildConsigne, parseConsigne, fileNameFor } from '../js/assist.js';
+const d0 = new Date(2026, 10, 25, 19, 12, 5);
+assert.equal(fileNameFor('Ajoute le [[Calendrier/Dîner|dîner]] : vérifie / note ?', d0), '2026-11-25 19h12 Ajoute le dîner vérifie note.md');
+const note = buildConsigne('Prépare un brouillon pour Paul', { lien: '[[Calendrier/2026-11-26 Dîner]]', date: d0 });
+assert.match(note, /^---\ntype: consigne\nstatut: a-traiter\ncree: 2026-11-25T19:12:05[+-]\d\d:\d\d\nsource: calendrier\nlien: "\[\[Calendrier\/2026-11-26 Dîner\]\]"\n---\nPrépare un brouillon pour Paul\n$/);
+const c0 = parseConsigne(note);
+assert.equal(c0.statut, 'a-traiter');
+assert.equal(c0.lien, 'Calendrier/2026-11-26 Dîner');
+assert.equal(c0.ask, 'Prépare un brouillon pour Paul');
+assert.equal(c0.answer, '');
+const done = note.replace('statut: a-traiter', 'statut: attente\ntraite: 2026-11-25') + '\n## Claude (2026-11-25)\nQuel Paul ?\n';
+const c1 = parseConsigne(done);
+assert.equal(c1.statut, 'attente');
+assert.equal(c1.label, 'Question pour toi');
+assert.equal(c1.answer, 'Quel Paul ?');
+assert.equal(c1.ask, 'Prépare un brouillon pour Paul');
+assert.equal(parseConsigne('---\ntitle: x\n---\nhello'), null);

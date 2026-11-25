@@ -4,14 +4,22 @@ Webapp légère (installable sur l'écran d'accueil Android) qui lit et modifie
 directement les notes d'événements du plugin Obsidian **Full Calendar**
 (et **Full Calendar Remastered**) stockées sur **OneDrive**.
 
-- Vues **Liste / Jour / Semaine / Mois**, balayage gauche-droite pour changer de période.
-- **Créer / modifier / supprimer** un événement. On peut aussi le glisser-déposer en vue Jour ou Semaine.
+- Vues **Liste / Jour / 3 jours / Semaine / Mois**, balayage gauche-droite pour changer de période.
+- **Recherche** dans les titres et le contenu des notes, sans tenir compte des accents, avec mots surlignés.
+  Les événements à venir sont listés avant les passés.
+- **Fiche événement** : la note est mise en forme, et on peut **cocher les cases** directement depuis la fiche.
+  Boutons Modifier, Dupliquer, Voir le jour, Ouvrir dans Obsidian et Supprimer.
+- **Saisie rapide** : « Dîner Alex demain 20h », « Réunion lundi 14h-15h30 », « Anniv le 12 mars »…
+  La date et l'heure sont reconnues et retirées du titre.
+- **Créer / modifier / supprimer**, avec possibilité d'annuler une suppression.
+  Glisser-déposer en vue Jour, 3 jours ou Semaine.
+- **Afficher ou masquer chaque calendrier** (bouton réglages en haut à droite).
 - Événements ponctuels, sur plusieurs jours (`endDate`) et récurrents (`daysOfWeek`, `startRecur`, `endRecur`, `skipDates`).
 - Même format de fichier que le plugin : `2026-11-25 Titre.md` et `(Every W) Titre.md`.
   Le corps de la note et les propriétés inconnues sont conservés.
 - Les calendriers, couleurs, premier jour de la semaine et vue par défaut sont importés depuis la config du plugin (`data.json`).
-- Cache local : l'ouverture est instantanée et l'appli marche hors ligne en lecture.
-  Seules les notes modifiées sont retéléchargées.
+- Cache local : ouverture instantanée et lecture hors ligne. Seules les notes modifiées sont retéléchargées.
+- Thème clair ou sombre automatique. Le bouton retour d'Android ferme les fenêtres.
 - Aucun serveur. L'appli parle directement à OneDrive depuis ton navigateur.
 
 ## Mise en place (une seule fois)
@@ -65,9 +73,11 @@ directement les notes d'événements du plugin Obsidian **Full Calendar**
 ## Développement
 
 Aucune étape de build. Pour lancer en local : `python3 -m http.server`.
-Tests du parseur : `node tests/md.test.mjs`.
+Tests : `node tests/md.test.mjs && node tests/extra.test.mjs`.
 
 - `js/md.js` : lecture et écriture du format Full Calendar.
 - `js/graph.js` : accès OneDrive (Microsoft Graph).
 - `js/auth.js` : connexion OAuth (PKCE).
+- `js/nlp.js` : saisie rapide en français.
+- `js/markdown.js` : rendu des notes et cases à cocher.
 - `js/app.js` : interface (FullCalendar 6, fourni dans `vendor/`, licence MIT).

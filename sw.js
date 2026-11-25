@@ -1,9 +1,9 @@
 // Service worker : met l'appli en cache pour un démarrage instantané et hors ligne.
 // Les appels OneDrive / Microsoft ne passent jamais par ce cache.
-const VERSION = 'v1';
+const VERSION = 'v2';
 const SHELL = [
   './', 'index.html', 'style.css', 'manifest.webmanifest',
-  'js/app.js', 'js/auth.js', 'js/graph.js', 'js/md.js',
+  'js/app.js', 'js/auth.js', 'js/graph.js', 'js/md.js', 'js/markdown.js', 'js/nlp.js',
   'vendor/fullcalendar.min.js', 'vendor/fc-fr.min.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
 ];

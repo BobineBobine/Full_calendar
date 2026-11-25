@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Calendrier</title>
+  <meta name="description" content="Lecteur / éditeur léger des notes Full Calendar d'Obsidian stockées sur OneDrive.">
+  <meta name="theme-color" content="#b85560">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+  <script src="vendor/fullcalendar.min.js"></script>
+  <script src="vendor/fc-fr.min.js"></script>
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <div id="banner" hidden><span></span><button type="button"></button></div>
+  <main id="cal"></main>
+  <div id="status" hidden></div>
+  <button id="fab" type="button" aria-label="Nouvel événement">+</button>
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <!-- Éditeur d'événement -->
+  <dialog id="dlgEvent">
+    <form id="evForm" method="dialog">
+      <h2 id="evTitleHead">Événement</h2>
+      <p id="evWarn" class="warn" hidden>Règle de récurrence avancée (rrule) : seule la première occurrence est affichée.</p>
+
+      <label class="field"><span>Titre</span>
+        <input id="evTitle" required autocomplete="off" enterkeyhint="done">
+      </label>
+      <label class="field"><span>Calendrier</span>
+        <select id="evCal"></select>
+      </label>
+
+      <div class="toggles">
+        <label class="switch"><input type="checkbox" id="evAllDay"> Toute la journée</label>
+        <label class="switch"><input type="checkbox" id="evRecurring"> Récurrent</label>
+      </div>
+
+      <div id="rowSingle" class="grid2">
+        <label class="field"><span>Date</span><input type="date" id="evDate"></label>
+        <label class="field"><span>Jusqu'au (facultatif)</span><input type="date" id="evEndDate"></label>
+      </div>
+
+      <div id="rowRecur" hidden>
+        <div class="field"><span>Jours</span><div id="evDays" class="chips"></div></div>
+        <div class="grid2">
+          <label class="field"><span>À partir du</span><input type="date" id="evStartRecur"></label>
+          <label class="field"><span>Jusqu'au (facultatif)</span><input type="date" id="evEndRecur"></label>
+        </div>
+      </div>
+
+      <div id="rowTimes" class="grid2">
+        <label class="field"><span>Début</span><input type="time" id="evStart"></label>
+        <label class="field"><span>Fin</span><input type="time" id="evEnd"></label>
+      </div>
+
+      <label class="field"><span>Notes</span>
+        <textarea id="evBody" rows="4" placeholder="Contenu de la note (facultatif)"></textarea>
+      </label>
+
+      <div class="actions">
+        <button type="button" id="evDelete" class="danger">Supprimer</button>
+        <a id="evObsidian" class="link" hidden>Ouvrir dans Obsidian</a>
+        <span class="spacer"></span>
+        <button type="button" id="evCancel">Annuler</button>
+        <button type="submit" id="evSave" class="primary">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Réglages -->
+  <dialog id="dlgSettings">
+    <form id="setForm" method="dialog">
+      <h2>Réglages</h2>
+
+      <section>
+        <h3>1. Application Microsoft</h3>
+        <label class="field"><span>ID d'application (client)</span>
+          <input id="setClientId" autocomplete="off" spellcheck="false" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+        </label>
+        <p class="hint">URI de redirection à déclarer (type « Application monopage / SPA ») :<br><code id="setRedirect"></code></p>
+      </section>
+
+      <section>
+        <h3>2. Connexion OneDrive</h3>
+        <div class="row">
+          <span id="setAuthState"></span>
+          <span class="spacer"></span>
+          <button type="button" id="setLogin" class="primary">Se connecter</button>
+          <button type="button" id="setLogout">Se déconnecter</button>
+        </div>
+      </section>
+
+      <section id="setVaultBox">
+        <h3>3. Coffre Obsidian</h3>
+        <label class="field"><span>Chemin du coffre dans OneDrive</span>
+          <input id="setVault" list="vaultList" autocomplete="off" spellcheck="false" placeholder="ex. Documents/MonCoffre">
+          <datalist id="vaultList"></datalist>
+        </label>
+        <div class="row wrap">
+          <button type="button" id="setDetect">Chercher mes coffres</button>
+          <button type="button" id="setImport" class="primary">Importer la config Full Calendar</button>
+        </div>
+
+        <h3>Calendriers</h3>
+        <div id="setSources"></div>
+        <button type="button" id="setAddSrc">+ Ajouter un calendrier</button>
+
+        <div class="grid2">
+          <label class="field"><span>Vue par défaut</span>
+            <select id="setView">
+              <option value="listWeek">Liste</option>
+              <option value="timeGridDay">Jour</option>
+              <option value="timeGridWeek">Semaine</option>
+              <option value="dayGridMonth">Mois</option>
+            </select>
+          </label>
+          <label class="field"><span>Début de semaine</span>
+            <select id="setFirstDay">
+              <option value="1">Lundi</option>
+              <option value="0">Dimanche</option>
+              <option value="6">Samedi</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <div class="actions">
+        <button type="button" id="setClearCache">Vider le cache</button>
+        <span class="spacer"></span>
+        <button type="button" id="setCancel">Annuler</button>
+        <button type="submit" class="primary">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+</body>
+</html>

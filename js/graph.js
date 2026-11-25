@@ -97,3 +97,12 @@ export async function findVaults() {
   }
   return [...out];
 }
+
+/** Versions précédentes d'un fichier (la plus récente en premier). */
+export async function listVersions(id) {
+  return (await (await req(`/me/drive/items/${id}/versions`)).json()).value || [];
+}
+
+export async function readVersion(id, versionId) {
+  return (await req(`/me/drive/items/${id}/versions/${encodeURIComponent(versionId)}/content`)).text();
+}

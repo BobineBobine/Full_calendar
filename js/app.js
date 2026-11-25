@@ -3,6 +3,7 @@ import * as graph from './graph.js';
 import * as md from './md.js';
 import { renderMarkdown, toggleTask } from './markdown.js';
 import { parseQuick } from './nlp.js';
+import { PALETTES, applyPalette, paletteFromObsidianCss, SNIPPET_BRIDGE } from './themes.js';
 
 // ---------- Stockage local ----------
 const LS = {
@@ -14,7 +15,7 @@ const VIEWS = ['agenda', 'timeGridDay', 'timeGrid3Day', 'timeGridWeek', 'dayGrid
 const normView = v => (v === 'listWeek' || /^list/.test(v || '')) ? 'agenda' : (VIEWS.includes(v) ? v : null);
 const DEFAULT_SETTINGS = { clientId: '', vaultPath: '', sources: [], firstDay: 1, initialView: 'agenda', defaultCalId: null,
   theme: 'auto', textSize: 'm', weekends: true, weekNumbers: false, slotMin: 0, slotMax: 24,
-  monthLines: 2, defaultDuration: 60, dragMode: 'confirm', agendaWeeks: true };
+  monthLines: 2, defaultDuration: 60, dragMode: 'confirm', agendaWeeks: true, palette: 'rose', useSnippets: false, agendaEmpty: true, tabs: ['agenda', 'dayGridMonth'] };
 
 let settings = { ...DEFAULT_SETTINGS, ...LS.get('fc.settings', {}) };
 let cache = LS.get('fc.cache', { files: {} }); // id -> { id, name, calId, eTag, text }
@@ -24,6 +25,7 @@ let calendar = null;
 let syncing = false;
 let lastSync = LS.get('fc.lastSync', 0);
 let currentView = null;
+let obsPalettes = LS.get('fc.obsPalettes', {});
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -571,6 +573,14 @@ function renderAgenda({ keepScroll = false } = {}) {
     if (!byDay.has(it.date)) byDay.set(it.date, []);
     byDay.get(it.date).push(it);
   }
+  if (settings.agendaEmpty !== false) {
+    // Tous les jours, même vides (on borne à la période réellement couverte par l'agenda)
+    const from = agenda.start > agenda.bounds.min ? agenda.start : agenda.bounds.min;
+    for (let d = from < agenda.start ? agenda.start : from; d < agenda.end; d = md.addDays(d, 1)) {
+      if (agenda.bounds.max !== null && d > agenda.bounds.max && d > today) break;
+      if (!byDay.has(d)) byDay.set(d, []);
+    }
+  }
   if (today >= agenda.start && today < agenda.end && !byDay.has(today)) byDay.set(today, []);
   const days = [...byDay.keys()].sort();
   const atStart = agenda.start <= agenda.bounds.min;
@@ -587,9 +597,10 @@ function renderAgenda({ keepScroll = false } = {}) {
     const list = byDay.get(d).sort((a, b) =>
       (b.ev.allDay - a.ev.allDay) || (a.ev.startTime || '').localeCompare(b.ev.startTime || '') || a.ev.title.localeCompare(b.ev.title));
     const rel = d === today ? 'Aujourd’hui' : d === md.addDays(today, 1) ? 'Demain' : d === md.addDays(today, -1) ? 'Hier' : '';
-    html += `<section class="ag-day${d === today ? ' today' : ''}${d < today ? ' past' : ''}" data-date="${d}">
+    const wd = toDate(d).getDay();
+    html += `<section class="ag-day${d === today ? ' today' : ''}${d < today ? ' past' : ''}${list.length ? '' : ' empty'}${wd === 0 || wd === 6 ? ' we' : ''}" data-date="${d}">
       <div class="ag-date"><b>${+d.slice(8)}</b><span class="ag-wd"><small>${esc(fd(d, F.wd).replace('.', ''))}</small><button type="button" class="ag-add" aria-label="Ajouter un événement le ${esc(fd(d, F.short))}">+</button></span></div>
-      <div class="ag-events">${rel ? `<div class="ag-rel">${rel}</div>` : ''}${list.length ? list.map(agItem).join('') : '<div class="ag-empty">Rien de prévu</div>'}</div>
+      <div class="ag-events">${rel ? `<div class="ag-rel">${rel}</div>` : ''}${list.length ? list.map(agItem).join('') : '<div class="ag-empty"></div>'}</div>
     </section>`;
   }
   html += `<div class="ag-sentinel" id="agBottom">${atEnd ? '<div class="ag-end">Fin de l’agenda</div>' : '<span class="ag-more">…</span>'}</div>`;
@@ -692,7 +703,10 @@ function gotoDay(date) {
 const nav = {
   prev: () => (currentView === 'agenda' ? agendaJump(-1) : calendar.prev()),
   next: () => (currentView === 'agenda' ? agendaJump(1) : calendar.next()),
-  today: () => (currentView === 'agenda' ? scrollToDate(todayStr(), true) : calendar.today()),
+  today: () => {
+    if (currentView === 'agenda') scrollToDate(todayStr(), true); else calendar.today();
+    flashToday();
+  },
 };
 
 // ---------- Fiche événement ----------
@@ -749,6 +763,68 @@ async function onTaskToggle(e) {
     cb.checked = !cb.checked;
     handleError(err);
   } finally { cb.disabled = false; }
+}
+
+// ---------- Historique des versions ----------
+async function openHistory() {
+  const fileId = detail.fileId;
+  const file = cache.files[fileId];
+  const box = $('#histList');
+  box.innerHTML = '<div class="s-empty">Chargement de l’historique…</div>';
+  swapDlg($('#dlgDetail'), $('#dlgHistory'));
+  try {
+    const versions = await graph.listVersions(fileId);
+    if (versions.length <= 1) { box.innerHTML = '<div class="s-empty">Aucune version précédente pour cette note.</div>'; return; }
+    box.innerHTML = '';
+    const sig = ev => ev ? `${ev.title}|${ev.type === 'recurring' ? ev.daysOfWeek.join() : ev.date}|${ev.endDate || ''}|${ev.allDay}|${ev.startTime || ''}|${ev.endTime || ''}` : '';
+    const curSig = sig(getEvent(file));
+    for (const [i, v] of versions.entries()) {
+      const row = document.createElement('div');
+      row.className = 'hist-row';
+      const when = new Date(v.lastModifiedDateTime);
+      row.innerHTML = `<div class="hist-main"><b>${i === 0 ? 'Version actuelle' : esc(cap(when.toLocaleString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })))}</b>
+        <span class="hist-desc">…</span></div>`;
+      box.appendChild(row);
+      graph.readVersion(fileId, v.id).then(text => {
+        const ev = md.parseEvent(text, file.name);
+        const desc = ev ? `${ev.title} · ${ev.type === 'recurring' ? recurText(ev).split('\n')[0] : whenText(ev).replace('\n', ' · ')}` : 'Note sans événement';
+        row.querySelector('.hist-desc').textContent = desc;
+        if (i > 0 && sig(ev) !== curSig) {
+          row.classList.add('diff');
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'primary';
+          btn.textContent = 'Restaurer';
+          btn.onclick = async () => {
+            if (!await askConfirm('Restaurer cette version ?', desc, 'Restaurer')) return;
+            setBusy(true);
+            try {
+              const saved = await restoreText(fileId, text);
+              detail.fileId = saved.id;
+              toast('Version restaurée');
+              closeDlg($('#dlgHistory'));
+            } catch (err) { handleError(err); } finally { setBusy(false); }
+          };
+          row.appendChild(btn);
+        }
+      }).catch(() => { row.querySelector('.hist-desc').textContent = 'Contenu illisible'; });
+    }
+  } catch (err) {
+    box.innerHTML = `<div class="s-empty">Historique indisponible : ${esc(err.message)}</div>`;
+  }
+}
+
+/** Réécrit une note avec un ancien contenu, et renomme le fichier selon la date de cette version. */
+async function restoreText(fileId, text) {
+  const file = cache.files[fileId];
+  const ev = md.parseEvent(text, file.name);
+  let eTag = file.eTag;
+  if (ev) {
+    const name = md.fileNameFor(ev);
+    if (name !== file.name) eTag = (await graph.moveRename(fileId, { name })).eTag;
+  }
+  const item = await graph.writeFile(fileId, text, eTag);
+  return storeItem(item, file.calId, text);
 }
 
 // ---------- Éditeur ----------
@@ -1047,6 +1123,7 @@ function openSearch() {
 function updateMenuDot() { $('#menuDot').hidden = !settings.sources.some(s => hidden.has(s.id)); }
 
 function renderMenu() {
+  for (const b of document.querySelectorAll('#menuMode button')) b.setAttribute('aria-pressed', String(b.dataset.mode === settings.theme));
   const counts = {};
   for (const f of Object.values(cache.files)) counts[f.calId] = (counts[f.calId] || 0) + 1;
   const box = $('#menuCals');
@@ -1117,6 +1194,8 @@ function openSettings({ from } = {}) {
   $('#setView').value = normView(settings.initialView) || 'agenda';
   $('#setFirstDay').value = String(settings.firstDay);
   $('#setTheme').value = settings.theme;
+  $('#setSnippets').checked = !!settings.useSnippets;
+  renderPalettes();
   $('#setTextSize').value = settings.textSize;
   $('#setWeekends').checked = settings.weekends !== false;
   $('#setWeekNumbers').checked = !!settings.weekNumbers;
@@ -1126,6 +1205,9 @@ function openSettings({ from } = {}) {
   $('#setDuration').value = String(settings.defaultDuration ?? 60);
   $('#setDrag').value = settings.dragMode || 'confirm';
   $('#setAgendaWeeks').checked = settings.agendaWeeks !== false;
+  $('#setAgendaEmpty').checked = settings.agendaEmpty !== false;
+  const tabs = Array.isArray(settings.tabs) && settings.tabs.length ? settings.tabs : ['agenda', 'dayGridMonth'];
+  for (const cb of document.querySelectorAll('#setTabs input')) cb.checked = tabs.includes(cb.value);
   settings.sources = settings.sources.map(s => ({ ...s }));
   fillDefaultCal();
   renderSources();
@@ -1147,15 +1229,102 @@ function fillDefaultCal() {
   sel.value = settings.defaultCalId && sourceById(settings.defaultCalId) ? settings.defaultCalId : '';
 }
 
+function isDark() {
+  return settings.theme === 'dark' || (settings.theme !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+}
+function paletteById(id) {
+  if (id && id.startsWith('obs:') && obsPalettes[id.slice(4)]) return obsPalettes[id.slice(4)];
+  return PALETTES[id] || PALETTES.rose;
+}
+
+function renderPalettes() {
+  const box = $('#setPalettes');
+  if (!box) return;
+  box.innerHTML = '';
+  const v = isDark() ? 'dark' : 'light';
+  const entries = [
+    ...Object.entries(PALETTES).map(([id, p]) => ({ id, name: p.name, p })),
+    ...Object.entries(obsPalettes).map(([n, p]) => ({ id: `obs:${n}`, name: n, p, obs: true })),
+  ];
+  for (const { id, name, p, obs } of entries) {
+    const c = p[v];
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'pal' + (settings.palette === id ? ' on' : '');
+    b.setAttribute('aria-pressed', String(settings.palette === id));
+    b.innerHTML = `<span class="pal-prev" style="background:${esc(c.bg)};border-color:${esc(c.border)}">
+        <i style="background:${esc(c.surface)}"></i><i style="background:${esc(c.accent)}"></i><i style="background:${esc(c.fg)}"></i></span>
+      <span class="pal-name">${esc(name)}${obs ? '<small>Obsidian</small>' : ''}</span>`;
+    b.onclick = () => { settings.palette = id; applyPrefs(); renderPalettes(); };
+    box.appendChild(b);
+  }
+}
+
+/** Importe les couleurs des thèmes installés dans le coffre Obsidian. */
+async function importObsidianThemes() {
+  if (!settings.vaultPath) throw new Error("Indique d'abord le chemin du coffre");
+  const found = {};
+  for (const dir of ['.obsidian/themes', '.obsidian-mobile/themes']) {
+    const base = graph.joinPath(settings.vaultPath, dir);
+    let folders = [];
+    try { folders = (await graph.listChildren(base)).filter(i => i.folder); } catch (e) { if (e.status !== 404) throw e; }
+    for (const f of folders) {
+      if (found[f.name]) continue;
+      setBusy(true, `Thème ${f.name}…`);
+      try { found[f.name] = paletteFromObsidianCss(await graph.readPath(graph.joinPath(base, f.name, 'theme.css'))); }
+      catch (e) { if (e.status !== 404) console.warn(f.name, e); }
+    }
+  }
+  if (!Object.keys(found).length) throw new Error('Aucun thème trouvé dans .obsidian/themes');
+  obsPalettes = found;
+  LS.set('fc.obsPalettes', obsPalettes);
+  let active = null;
+  try {
+    const app = JSON.parse(await graph.readPath(graph.joinPath(settings.vaultPath, '.obsidian/appearance.json')));
+    if (app.cssTheme && found[app.cssTheme]) { active = app.cssTheme; settings.palette = `obs:${active}`; }
+    if (app.theme === 'moonstone') settings.theme = 'light';
+    else if (app.theme === 'obsidian') settings.theme = 'dark';
+    else if (app.theme === 'system') settings.theme = 'auto';
+    document.querySelector('#setTheme').value = settings.theme;
+  } catch { /* pas d'appearance.json */ }
+  applyPrefs();
+  renderPalettes();
+  return { n: Object.keys(found).length, active };
+}
+
+/** Récupère les extraits CSS (snippets) activés dans Obsidian. */
+async function importSnippets() {
+  const app = JSON.parse(await graph.readPath(graph.joinPath(settings.vaultPath, '.obsidian/appearance.json')));
+  const names = app.enabledCssSnippets || [];
+  let css = '';
+  for (const n of names) {
+    try { css += `\n/* ${n} */\n` + await graph.readPath(graph.joinPath(settings.vaultPath, '.obsidian/snippets', `${n}.css`)); }
+    catch (e) { if (e.status !== 404) throw e; }
+  }
+  LS.set('fc.snippetsCss', css);
+  return names;
+}
+
 /** Applique les préférences d'affichage. */
 function applyPrefs() {
   const root = document.documentElement;
   if (settings.theme === 'light' || settings.theme === 'dark') root.dataset.theme = settings.theme;
   else delete root.dataset.theme;
+  const isDarkMode = isDark();
+  const pal = paletteById(settings.palette);
+  applyPalette(pal[isDarkMode ? 'dark' : 'light'], isDarkMode);
+  colorMemo.clear();
+  document.body.classList.toggle('theme-dark', isDarkMode);
+  document.body.classList.toggle('theme-light', !isDarkMode);
+  let snip = document.getElementById('obsSnippets');
+  const css = settings.useSnippets ? LS.get('fc.snippetsCss', '') : '';
+  if (css) {
+    if (!snip) { snip = document.createElement('style'); snip.id = 'obsSnippets'; document.head.appendChild(snip); }
+    snip.textContent = SNIPPET_BRIDGE + '\n' + css;
+  } else if (snip) snip.remove();
   root.style.setProperty('--fs', { s: '14px', m: '15px', l: '17px' }[settings.textSize] || '15px');
   document.body.dataset.monthLines = String(settings.monthLines ?? 2);
-  const dark = settings.theme === 'dark' || (settings.theme !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
-  for (const m of document.querySelectorAll('meta[name=theme-color]')) m.content = dark ? '#121316' : '#ffffff';
+  applyTabs();
   if (!calendar) return;
   const pad2 = n => `${String(n).padStart(2, '0')}:00:00`;
   calendar.batchRendering(() => {
@@ -1174,6 +1343,7 @@ function readSettingsForm() {
   settings.initialView = $('#setView').value;
   settings.firstDay = +$('#setFirstDay').value;
   settings.theme = $('#setTheme').value;
+  settings.useSnippets = $('#setSnippets').checked;
   settings.textSize = $('#setTextSize').value;
   settings.weekends = $('#setWeekends').checked;
   settings.weekNumbers = $('#setWeekNumbers').checked;
@@ -1183,6 +1353,9 @@ function readSettingsForm() {
   settings.defaultDuration = +$('#setDuration').value;
   settings.dragMode = $('#setDrag').value;
   settings.agendaWeeks = $('#setAgendaWeeks').checked;
+  settings.agendaEmpty = $('#setAgendaEmpty').checked;
+  settings.tabs = [...document.querySelectorAll('#setTabs input:checked')].map(cb => cb.value);
+  if (!settings.tabs.length) settings.tabs = ['agenda'];
   settings.defaultCalId = $('#setDefaultCal').value || null;
   settings.sources = settings.sources.filter(s => s.directory && s.directory.trim())
     .map((s, i) => ({ ...s, id: s.id || `cal_${Date.now()}_${i}`, name: s.name || s.directory.split('/').pop(), directory: s.directory.trim().replace(/^\/+|\/+$/g, '') }));
@@ -1247,6 +1420,20 @@ function wireSettings() {
   for (let h = 0; h <= 23; h++) $('#setSlotMin').add(new Option(`${h} h`, String(h)));
   for (let h = 1; h <= 24; h++) $('#setSlotMax').add(new Option(`${h} h`, String(h)));
   $('#setSources').addEventListener('input', () => fillDefaultCal());
+  $('#setTheme').onchange = () => { settings.theme = $('#setTheme').value; applyPrefs(); renderPalettes(); };
+  $('#setImportThemes').onclick = withBusy(async () => {
+    readSettingsForm();
+    const r = await importObsidianThemes();
+    toast(`${r.n} thème(s) importé(s)${r.active ? ` — « ${r.active} » (ton thème Obsidian) sélectionné` : ''}`);
+  });
+  $('#setSnippets').onchange = withBusy(async () => {
+    settings.useSnippets = $('#setSnippets').checked;
+    if (settings.useSnippets) {
+      const names = await importSnippets();
+      toast(names.length ? `Snippets appliqués : ${names.join(', ')}` : 'Aucun snippet activé dans Obsidian');
+    }
+    applyPrefs();
+  });
   $('#setAddSrc').onclick = () => {
     readSettingsForm();
     settings.sources.push({ id: `cal_${Date.now()}`, name: '', directory: '', color: '#3b82f6' });
@@ -1274,11 +1461,37 @@ function wireSettings() {
   };
   $('#setCancel').onclick = () => {
     settings = { ...DEFAULT_SETTINGS, ...LS.get('fc.settings', {}) };
+    applyPrefs();
     closeDlg($('#dlgSettings'));
   };
 }
 
 // ---------- Calendrier ----------
+/** Petite animation qui montre où est aujourd'hui. */
+function flashToday() {
+  const btn = $('#btnToday');
+  btn.classList.remove('pop');
+  void btn.offsetWidth;
+  btn.classList.add('pop');
+  setTimeout(() => {
+    const sel = currentView === 'agenda' ? '#agenda .ag-day.today'
+      : '.fc-daygrid-day.fc-day-today, .fc-timegrid-col.fc-day-today, .fc-col-header-cell.fc-day-today';
+    for (const el of document.querySelectorAll(sel)) {
+      el.classList.remove('flash');
+      void el.offsetWidth;
+      el.classList.add('flash');
+      setTimeout(() => el.classList.remove('flash'), 1400);
+    }
+  }, currentView === 'agenda' ? 350 : 60);
+}
+
+/** Affiche seulement les onglets choisis dans les réglages. */
+function applyTabs() {
+  const tabs = Array.isArray(settings.tabs) && settings.tabs.length ? settings.tabs : ['agenda', 'dayGridMonth'];
+  for (const b of document.querySelectorAll('#viewNav button')) b.hidden = !tabs.includes(b.dataset.view);
+  $('#viewNav').hidden = tabs.length < 2;
+}
+
 function setActiveView(type) {
   for (const b of document.querySelectorAll('#viewNav button')) b.setAttribute('aria-pressed', String(b.dataset.view === type));
 }
@@ -1332,7 +1545,12 @@ function initCalendar() {
     },
   });
   calendar.render();
-  setView(LS.get('fc.view', null) || settings.initialView);
+  {
+    const tabs = Array.isArray(settings.tabs) && settings.tabs.length ? settings.tabs : ['agenda', 'dayGridMonth'];
+    let v = normView(LS.get('fc.view', null)) || normView(settings.initialView);
+    if (!tabs.includes(v)) v = tabs.includes(normView(settings.initialView)) ? normView(settings.initialView) : tabs[0];
+    setView(v);
+  }
 
   // Balayage gauche/droite pour changer de période
   const el = $('#cal');
@@ -1366,6 +1584,18 @@ function wireUI() {
   $('#btnSync').onclick = () => sync();
   $('#btnMenu').onclick = () => { renderMenu(); openDlg($('#dlgMenu')); };
   $('#menuSettings').onclick = () => openSettings({ from: $('#dlgMenu') });
+  for (const b of document.querySelectorAll('#menuMode button')) {
+    b.onclick = () => { settings.theme = b.dataset.mode; saveSettings(); applyPrefs(); renderMenu(); };
+  }
+  $('#menuRecent').onclick = () => {
+    searchSort = 'modified';
+    for (const x of document.querySelectorAll('#searchSort button')) x.setAttribute('aria-pressed', String(x.dataset.sort === 'modified'));
+    $('#searchInput').value = '';
+    searchIndex = null;
+    swapDlg($('#dlgMenu'), $('#dlgSearch'));
+    runSearch();
+  };
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (settings.theme === 'auto') applyPrefs(); });
   $('#menuSyncBtn').onclick = async () => { await sync(); renderMenu(); };
   for (const b of document.querySelectorAll('#viewNav button')) b.onclick = () => setView(b.dataset.view);
 
@@ -1380,6 +1610,7 @@ function wireUI() {
   // Fiche
   $('#dtBody').addEventListener('change', onTaskToggle);
   $('#dtEdit').onclick = () => openEditor(detail.fileId, {}, { from: $('#dlgDetail') });
+  $('#dtHistory').onclick = openHistory;
   $('#dtDup').onclick = () => openEditor(null, { copyFrom: detail.fileId }, { from: $('#dlgDetail') });
   $('#dtGoto').onclick = () => {
     const ev = getEvent(cache.files[detail.fileId]);

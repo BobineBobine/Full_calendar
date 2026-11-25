@@ -10,10 +10,10 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="style.css?v=6">
+  <link rel="stylesheet" href="style.css?v=8">
   <script src="vendor/fullcalendar.min.js"></script>
   <script src="vendor/fc-fr.min.js"></script>
-  <script type="module" src="js/app.js?v=6"></script>
+  <script type="module" src="js/app.js?v=8"></script>
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -77,6 +77,7 @@
     <div class="dt-actions">
       <button type="button" id="dtEdit" class="primary"><svg><use href="#i-edit"/></svg>Modifier</button>
       <button type="button" id="dtDup"><svg><use href="#i-copy"/></svg>Dupliquer</button>
+      <button type="button" id="dtHistory"><svg><use href="#i-clock"/></svg>Historique</button>
       <button type="button" id="dtGoto"><svg><use href="#i-target"/></svg>Voir le jour</button>
       <a id="dtObsidian" class="btn"><svg><use href="#i-ext"/></svg>Obsidian</a>
       <button type="button" id="dtDelete" class="danger"><svg><use href="#i-trash"/></svg>Supprimer</button>
@@ -144,6 +145,15 @@
     </div>
   </dialog>
 
+  <!-- Historique -->
+  <dialog id="dlgHistory" class="sheet tall">
+    <div class="sheet-handle"></div>
+    <button type="button" class="ib sheet-close" data-close aria-label="Fermer"><svg><use href="#i-x"/></svg></button>
+    <h2>Historique de la note</h2>
+    <p class="hint">Versions enregistrées par OneDrive. « Restaurer » remet la note (et son nom de fichier) dans cet état.</p>
+    <div id="histList"></div>
+  </dialog>
+
   <!-- Recherche -->
   <dialog id="dlgSearch" class="fullscreen">
     <div class="search-bar">
@@ -164,6 +174,18 @@
     <button type="button" class="ib sheet-close" data-close aria-label="Fermer"><svg><use href="#i-x"/></svg></button>
     <h2>Calendriers</h2>
     <div id="menuCals"></div>
+    <div class="menu-row">
+      <span>Apparence</span>
+      <div id="menuMode" class="seg" role="group" aria-label="Mode">
+        <button type="button" data-mode="auto">Auto</button>
+        <button type="button" data-mode="light">Clair</button>
+        <button type="button" data-mode="dark">Sombre</button>
+      </div>
+    </div>
+    <div class="menu-links">
+      <button type="button" id="menuRecent"><svg><use href="#i-clock"/></svg>Modifiés récemment</button>
+      <a class="btn" href="https://onedrive.live.com/?v=recyclebin" target="_blank" rel="noopener"><svg><use href="#i-trash"/></svg>Corbeille OneDrive</a>
+    </div>
     <p id="menuSync" class="hint"></p>
     <div class="row">
       <button type="button" id="menuSettings"><svg><use href="#i-gear"/></svg>Réglages</button>
@@ -218,11 +240,16 @@
       </section>
 
       <section>
+        <h3>Apparence</h3>
+        <label class="field"><span>Mode</span>
+          <select id="setTheme"><option value="auto">Automatique (suit le téléphone)</option><option value="light">Clair</option><option value="dark">Sombre</option></select>
+        </label>
+        <div class="field"><span>Style</span><div id="setPalettes" class="pal-grid"></div></div>
+        <button type="button" id="setImportThemes">Importer les thèmes de mon coffre Obsidian</button>
+        <label class="switch"><input type="checkbox" id="setSnippets" role="switch"><span class="track"></span> Appliquer mes snippets CSS Obsidian</label>
+
         <h3>Affichage</h3>
         <div class="grid2">
-          <label class="field"><span>Thème</span>
-            <select id="setTheme"><option value="auto">Automatique</option><option value="light">Clair</option><option value="dark">Sombre</option></select>
-          </label>
           <label class="field"><span>Taille du texte</span>
             <select id="setTextSize"><option value="s">Petite</option><option value="m">Normale</option><option value="l">Grande</option></select>
           </label>
@@ -248,9 +275,19 @@
             <select id="setMonthLines"><option value="1">1 ligne</option><option value="2">2 lignes</option><option value="3">3 lignes</option></select>
           </label>
         </div>
+        <div class="field"><span>Onglets affichés en bas</span>
+          <div id="setTabs" class="tab-picks">
+            <label><input type="checkbox" value="agenda"> Agenda</label>
+            <label><input type="checkbox" value="timeGridDay"> Jour</label>
+            <label><input type="checkbox" value="timeGrid3Day"> 3 jours</label>
+            <label><input type="checkbox" value="timeGridWeek"> Semaine</label>
+            <label><input type="checkbox" value="dayGridMonth"> Mois</label>
+          </div>
+        </div>
         <label class="switch"><input type="checkbox" id="setWeekends" role="switch"><span class="track"></span> Afficher les week-ends</label>
         <label class="switch"><input type="checkbox" id="setWeekNumbers" role="switch"><span class="track"></span> Numéros de semaine</label>
         <label class="switch"><input type="checkbox" id="setAgendaWeeks" role="switch"><span class="track"></span> Agenda : séparer les semaines</label>
+        <label class="switch"><input type="checkbox" id="setAgendaEmpty" role="switch"><span class="track"></span> Agenda : afficher les jours sans événement</label>
       </section>
 
       <section>

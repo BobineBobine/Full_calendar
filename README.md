@@ -4,7 +4,8 @@ Webapp légère (installable sur l'écran d'accueil Android) qui lit et modifie
 directement les notes d'événements du plugin Obsidian **Full Calendar**
 (et **Full Calendar Remastered**) stockées sur **OneDrive**.
 
-- Vues **Liste / Jour / 3 jours / Semaine / Mois**, balayage gauche-droite pour changer de période.
+- **Agenda à défilement infini**, vers le passé comme vers le futur, plus les vues **Jour / 3 jours / Semaine / Mois** (balayage gauche-droite pour changer de période).
+- Glisser-déposer avec **confirmation** et bouton Annuler. Toucher un jour en vue Mois crée un événement.
 - **Recherche** dans les titres et le contenu des notes, sans tenir compte des accents, avec mots surlignés.
   Les événements à venir sont listés avant les passés.
 - **Fiche événement** : la note est mise en forme, et on peut **cocher les cases** directement depuis la fiche.

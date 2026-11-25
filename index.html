@@ -10,10 +10,10 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="style.css?v=3">
+  <link rel="stylesheet" href="style.css?v=5">
   <script src="vendor/fullcalendar.min.js"></script>
   <script src="vendor/fc-fr.min.js"></script>
-  <script type="module" src="js/app.js?v=3"></script>
+  <script type="module" src="js/app.js?v=5"></script>
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -51,10 +51,11 @@
   <div id="banner" hidden><span></span><button type="button"></button></div>
 
   <main id="cal"></main>
+  <main id="agenda" hidden></main>
   <div id="status" hidden></div>
 
   <nav id="viewNav" aria-label="Vue">
-    <button data-view="listWeek">Liste</button>
+    <button data-view="agenda">Agenda</button>
     <button data-view="timeGridDay">Jour</button>
     <button data-view="timeGrid3Day">3 jours</button>
     <button data-view="timeGridWeek">Semaine</button>
@@ -131,6 +132,17 @@
     </form>
   </dialog>
 
+  <!-- Confirmation -->
+  <dialog id="dlgConfirm" class="sheet confirm">
+    <div class="sheet-handle"></div>
+    <h2 id="cfTitle"></h2>
+    <p id="cfMsg"></p>
+    <div class="cf-actions">
+      <button type="button" id="cfNo">Annuler</button>
+      <button type="button" id="cfYes" class="primary">OK</button>
+    </div>
+  </dialog>
+
   <!-- Recherche -->
   <dialog id="dlgSearch" class="fullscreen">
     <div class="search-bar">
@@ -200,7 +212,7 @@
         <div class="grid2">
           <label class="field"><span>Vue par défaut</span>
             <select id="setView">
-              <option value="listWeek">Liste</option>
+              <option value="agenda">Agenda</option>
               <option value="timeGridDay">Jour</option>
               <option value="timeGrid3Day">3 jours</option>
               <option value="timeGridWeek">Semaine</option>

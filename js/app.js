@@ -10,8 +10,9 @@ const LS = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { console.warn(e); } },
 };
 
-const VIEWS = ['listWeek', 'timeGridDay', 'timeGrid3Day', 'timeGridWeek', 'dayGridMonth'];
-const DEFAULT_SETTINGS = { clientId: '', vaultPath: '', sources: [], firstDay: 1, initialView: 'listWeek', defaultCalId: null };
+const VIEWS = ['agenda', 'timeGridDay', 'timeGrid3Day', 'timeGridWeek', 'dayGridMonth'];
+const normView = v => (v === 'listWeek' || /^list/.test(v || '')) ? 'agenda' : (VIEWS.includes(v) ? v : null);
+const DEFAULT_SETTINGS = { clientId: '', vaultPath: '', sources: [], firstDay: 1, initialView: 'agenda', defaultCalId: null };
 
 let settings = { ...DEFAULT_SETTINGS, ...LS.get('fc.settings', {}) };
 let cache = LS.get('fc.cache', { files: {} }); // id -> { id, name, calId, eTag, text }
@@ -20,6 +21,7 @@ const parsedMemo = new Map();
 let calendar = null;
 let syncing = false;
 let lastSync = LS.get('fc.lastSync', 0);
+let currentView = null;
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -46,6 +48,8 @@ const F = {
   dmy: IF({ day: 'numeric', month: 'long', year: 'numeric' }),
   wd: IF({ weekday: 'short' }),
   mon: IF({ month: 'short' }),
+  monthY: IF({ month: 'long', year: 'numeric' }),
+  dm: IF({ day: 'numeric', month: 'short' }),
 };
 const fd = (s, f) => f.format(toDate(s));
 const DAY_NAMES = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
@@ -176,7 +180,10 @@ function eventsFn(info, success) {
   success(out);
 }
 
-const refresh = () => calendar && calendar.refetchEvents();
+function refresh() {
+  if (calendar) calendar.refetchEvents();
+  if (currentView === 'agenda') renderAgenda({ keepScroll: true });
+}
 
 function whenText(ev, occDate) {
   const times = ev.allDay ? 'Toute la journée' : (ev.endTime ? `${ev.startTime} – ${ev.endTime}` : ev.startTime);
@@ -390,15 +397,250 @@ async function onMove(info) {
     const overnight = endDay === md.addDays(f.date, 1) && f.endTime <= f.startTime;
     if (endDay !== f.date && !overnight) f.endDate = endDay;
   }
+  const old = {
+    title: ev.title, calId: file.calId, allDay: ev.allDay, recurring: false, date: ev.date,
+    endDate: ev.endDate, startTime: ev.allDay ? null : ev.startTime, endTime: ev.allDay ? null : ev.endTime,
+  };
+  const label = x => `${cap(fd(x.date, F.short))}${x.allDay ? ' · journée' : ' · ' + x.startTime + (x.endTime ? '–' + x.endTime : '')}`
+    + (x.endDate && x.endDate > x.date ? ` → ${fd(x.endDate, F.short)}` : '');
+  const ok = await askConfirm(info.oldEvent && +info.oldEvent.start !== +info.event.start ? 'Déplacer l’événement ?' : 'Modifier la durée ?',
+    `« ${ev.title} »\n${label(old)}\n↓\n${label(f)}`, 'Confirmer');
+  if (!ok) { info.revert(); return; }
   try {
     setBusy(true);
-    await saveEvent(fileId, f);
-    toast(`Déplacé au ${fd(f.date, F.short)}${f.startTime ? ' · ' + f.startTime : ''}`);
+    const saved = await saveEvent(fileId, f);
+    toast(`Déplacé : ${label(f)}`, {
+      action: {
+        label: 'Annuler',
+        fn: async () => {
+          try { setBusy(true); await saveEvent(saved.id, old); toast('Déplacement annulé'); }
+          catch (err) { handleError(err); } finally { setBusy(false); }
+        },
+      },
+    });
   } catch (err) {
     info.revert();
     handleError(err);
   } finally { setBusy(false); }
 }
+
+// ---------- Confirmation ----------
+function askConfirm(title, msg, okLabel = 'OK', danger = false) {
+  return new Promise(resolve => {
+    const d = $('#dlgConfirm');
+    $('#cfTitle').textContent = title;
+    $('#cfMsg').textContent = msg;
+    const yes = $('#cfYes');
+    yes.textContent = okLabel;
+    yes.className = danger ? 'primary danger-fill' : 'primary';
+    let done = false;
+    const onClose = () => finish(false);
+    const finish = v => {
+      if (done) return;
+      done = true;
+      d.removeEventListener('close', onClose);
+      closeDlg(d);
+      resolve(v);
+    };
+    yes.onclick = () => finish(true);
+    $('#cfNo').onclick = () => finish(false);
+    d.addEventListener('close', onClose);
+    openDlg(d);
+  });
+}
+
+// ---------- Agenda (liste à défilement infini) ----------
+const agenda = { start: null, end: null, busy: false, bounds: null };
+const AG_CHUNK = 60;
+let agObserver = null;
+
+function agendaBounds() {
+  let min = '9999-12-31', max = '0000-01-01', endless = false;
+  for (const f of Object.values(cache.files)) {
+    if (hidden.has(f.calId) || !sourceById(f.calId)) continue;
+    const ev = getEvent(f);
+    if (!ev) continue;
+    if (ev.type === 'recurring') {
+      const a = ev.startRecur || '0000-01-01';
+      if (a < min) min = a;
+      if (ev.endRecur) { if (ev.endRecur > max) max = ev.endRecur; } else endless = true;
+    } else {
+      if (ev.date < min) min = ev.date;
+      const b = ev.endDate && ev.endDate > ev.date ? ev.endDate : ev.date;
+      if (b > max) max = b;
+    }
+  }
+  return { min, max: endless ? null : max };
+}
+
+function collectOccurrences(rs, re) {
+  const out = [];
+  for (const f of Object.values(cache.files)) {
+    if (hidden.has(f.calId)) continue;
+    const src = sourceById(f.calId);
+    if (!src) continue;
+    const ev = getEvent(f);
+    if (!ev) continue;
+    for (const o of md.occurrences(ev, rs, re)) {
+      const lastDay = o.allDay && o.end ? md.addDays(o.end, -1) : o.date;
+      for (let d = o.date < rs ? rs : o.date; d <= lastDay && d < re; d = md.addDays(d, 1)) {
+        out.push({ fileId: f.id, ev, src, date: d, occDate: o.date, lastDay, multi: lastDay !== o.date });
+      }
+    }
+  }
+  return out;
+}
+
+function agItem(it) {
+  const { ev } = it;
+  const color = colorOf(it.src);
+  let time = ev.allDay ? 'Toute la journée' : (ev.endTime ? `${ev.startTime} – ${ev.endTime}` : ev.startTime);
+  if (it.multi && it.date !== it.occDate) {
+    const n = Math.round((toDate(it.lastDay) - toDate(it.occDate)) / 864e5) + 1;
+    const k = Math.round((toDate(it.date) - toDate(it.occDate)) / 864e5) + 1;
+    return `<button class="ag-ev cont" data-id="${esc(it.fileId)}" data-date="${it.occDate}" style="--c:${esc(color)};--t:${textColorFor(color)}">
+      <span class="ag-title">${esc(ev.title)}</span><span class="ag-time">jour ${k}/${n}</span></button>`;
+  }
+  if (it.multi) time += ` · jusqu’au ${fd(it.lastDay, F.dm)}`;
+  return `<button class="ag-ev" data-id="${esc(it.fileId)}" data-date="${it.occDate}" style="--c:${esc(color)};--t:${textColorFor(color)}">
+    <span class="ag-title">${ev.type === 'recurring' ? '<span class="rec">↻</span>' : ''}${esc(ev.title)}</span>
+    <span class="ag-time">${esc(time)}</span></button>`;
+}
+
+function renderAgenda({ keepScroll = false } = {}) {
+  const box = $('#agenda');
+  if (!agenda.start) return;
+  // Point d'ancrage : le jour affiché en haut, pour ne pas « sauter » quand du contenu change au-dessus.
+  let anchor = null;
+  if (keepScroll) {
+    const top = [...box.querySelectorAll('.ag-day')].find(el => el.offsetTop + el.offsetHeight > box.scrollTop + 4);
+    if (top) anchor = { date: top.dataset.date, delta: top.offsetTop - box.scrollTop };
+  }
+  agenda.bounds = agendaBounds();
+  const today = todayStr();
+  const byDay = new Map();
+  for (const it of collectOccurrences(agenda.start, agenda.end)) {
+    if (!byDay.has(it.date)) byDay.set(it.date, []);
+    byDay.get(it.date).push(it);
+  }
+  if (today >= agenda.start && today < agenda.end && !byDay.has(today)) byDay.set(today, []);
+  const days = [...byDay.keys()].sort();
+  const atStart = agenda.start <= agenda.bounds.min;
+  const atEnd = agenda.bounds.max !== null && agenda.end > agenda.bounds.max;
+  let html = `<div class="ag-sentinel" id="agTop">${atStart ? '' : '<span class="ag-more">…</span>'}</div>`;
+  let curMonth = '';
+  for (const d of days) {
+    const m = d.slice(0, 7);
+    if (m !== curMonth) { curMonth = m; html += `<h3 class="ag-month" data-date="${m}-01">${esc(cap(F.monthY.format(toDate(d))))}</h3>`; }
+    const list = byDay.get(d).sort((a, b) =>
+      (b.ev.allDay - a.ev.allDay) || (a.ev.startTime || '').localeCompare(b.ev.startTime || '') || a.ev.title.localeCompare(b.ev.title));
+    const rel = d === today ? 'Aujourd’hui' : d === md.addDays(today, 1) ? 'Demain' : d === md.addDays(today, -1) ? 'Hier' : '';
+    html += `<section class="ag-day${d === today ? ' today' : ''}${d < today ? ' past' : ''}" data-date="${d}">
+      <div class="ag-date"><b>${+d.slice(8)}</b><small>${esc(fd(d, F.wd).replace('.', ''))}</small></div>
+      <div class="ag-events">${rel ? `<div class="ag-rel">${rel}</div>` : ''}${list.length ? list.map(agItem).join('') : '<div class="ag-empty">Rien de prévu</div>'}</div>
+    </section>`;
+  }
+  html += `<div class="ag-sentinel" id="agBottom">${atEnd ? '<div class="ag-end">Fin de l’agenda</div>' : '<span class="ag-more">…</span>'}</div>`;
+  box.innerHTML = html;
+  if (anchor) {
+    const el = [...box.querySelectorAll('.ag-day')].find(x => x.dataset.date >= anchor.date);
+    if (el) box.scrollTop = el.offsetTop - anchor.delta;
+  }
+  agObserver?.disconnect();
+  agObserver = new IntersectionObserver(entries => {
+    for (const en of entries) {
+      if (!en.isIntersecting) continue;
+      if (en.target.id === 'agBottom' && !atEnd) extendAgenda('down');
+      if (en.target.id === 'agTop' && !atStart) extendAgenda('up');
+    }
+  }, { root: box, rootMargin: '700px 0px' });
+  agObserver.observe($('#agTop'));
+  agObserver.observe($('#agBottom'));
+  updateAgendaTitle();
+}
+
+function extendAgenda(dir) {
+  if (agenda.busy) return;
+  agenda.busy = true;
+  requestAnimationFrame(() => {
+    const box = $('#agenda');
+    if (dir === 'down') {
+      agenda.end = md.addDays(agenda.end, AG_CHUNK);
+      renderAgenda({ keepScroll: true });
+    } else {
+      const oldH = box.scrollHeight, oldTop = box.scrollTop;
+      agenda.start = md.addDays(agenda.start, -AG_CHUNK);
+      renderAgenda();
+      box.scrollTop = oldTop + (box.scrollHeight - oldH);
+    }
+    agenda.busy = false;
+  });
+}
+
+function agendaTopDate() {
+  const box = $('#agenda');
+  for (const el of box.querySelectorAll('.ag-day')) {
+    if (el.offsetTop + el.offsetHeight > box.scrollTop + 4) return el.dataset.date;
+  }
+  return todayStr();
+}
+
+function updateAgendaTitle() {
+  if (currentView !== 'agenda') return;
+  $('#hdrTitleText').textContent = F.monthY.format(toDate(agendaTopDate()));
+}
+
+function scrollToDate(date, smooth = false) {
+  const box = $('#agenda');
+  if (!agenda.start || date < agenda.start || date >= agenda.end) {
+    agenda.start = md.addDays(date, -30);
+    agenda.end = md.addDays(date, 90);
+    renderAgenda();
+  }
+  const target = [...box.querySelectorAll('.ag-day, .ag-month')].find(el => el.dataset.date >= date && el.classList.contains('ag-day'))
+    || box.querySelector('#agBottom');
+  // Un en-tête de mois juste au-dessus du jour visé reste visible
+  const prev = target.previousElementSibling;
+  const el = prev && prev.classList.contains('ag-month') ? prev : target;
+  box.scrollTo({ top: Math.max(0, el.offsetTop - 4), behavior: smooth ? 'smooth' : 'auto' });
+  updateAgendaTitle();
+}
+
+function agendaJump(delta) {
+  const d = toDate(agendaTopDate());
+  const t = new Date(d.getFullYear(), d.getMonth() + delta, 1, 12);
+  scrollToDate(fmtDate(t), true);
+}
+
+// ---------- Changement de vue ----------
+function setView(v) {
+  v = normView(v) || 'agenda';
+  currentView = v;
+  LS.set('fc.view', v);
+  setActiveView(v);
+  const isAg = v === 'agenda';
+  $('#agenda').hidden = !isAg;
+  $('#cal').hidden = isAg;
+  if (isAg) {
+    if (!agenda.start) scrollToDate(todayStr());
+    else renderAgenda({ keepScroll: true });
+  } else {
+    if (calendar.view.type !== v) calendar.changeView(v);
+    calendar.updateSize();
+    $('#hdrTitleText').textContent = calendar.view.title;
+  }
+}
+
+function gotoDay(date) {
+  setView('timeGridDay');
+  calendar.gotoDate(date);
+}
+
+const nav = {
+  prev: () => (currentView === 'agenda' ? agendaJump(-1) : calendar.prev()),
+  next: () => (currentView === 'agenda' ? agendaJump(1) : calendar.next()),
+  today: () => (currentView === 'agenda' ? scrollToDate(todayStr(), true) : calendar.today()),
+};
 
 // ---------- Fiche événement ----------
 let detail = null; // { fileId, occDate }
@@ -605,7 +847,7 @@ async function onSaveEditor(e) {
     const saved = await saveEvent(editing.fileId, f);
     closeDlg($('#dlgEvent'));
     toast(wasNew ? `Créé : ${f.recurring ? 'récurrent' : fd(f.date, F.short)}` : 'Enregistré');
-    if (wasNew && !f.recurring && calendar) calendar.gotoDate(f.date);
+    if (wasNew && !f.recurring) { if (currentView === 'agenda') scrollToDate(f.date, true); else calendar.gotoDate(f.date); }
     if (!wasNew && detail?.fileId === editing.fileId && saved) detail.fileId = saved.id;
   } catch (err) { handleError(err); }
   finally { btn.disabled = false; setBusy(false); }
@@ -783,7 +1025,7 @@ function openSettings({ from } = {}) {
   $('#setClientId').value = settings.clientId;
   $('#setRedirect').textContent = auth.redirectUri();
   $('#setVault').value = settings.vaultPath;
-  $('#setView').value = settings.initialView;
+  $('#setView').value = normView(settings.initialView) || 'agenda';
   $('#setFirstDay').value = String(settings.firstDay);
   settings.sources = settings.sources.map(s => ({ ...s }));
   renderSources();
@@ -818,7 +1060,7 @@ async function importPluginConfig() {
     settings.sources = [...srcs, ...extra];
     if (typeof d.firstDay === 'number') settings.firstDay = d.firstDay;
     const v = d.initialView?.mobile;
-    if (VIEWS.includes(v)) settings.initialView = v;
+    if (normView(v)) settings.initialView = normView(v);
     settings.defaultCalId = d.defaultCalendarId || null;
     $('#setView').value = settings.initialView;
     $('#setFirstDay').value = String(settings.firstDay);
@@ -898,7 +1140,7 @@ function initCalendar() {
   calendar = new FullCalendar.Calendar($('#cal'), {
     locale: 'fr',
     firstDay: settings.firstDay,
-    initialView: VIEWS.includes(saved) ? saved : (VIEWS.includes(settings.initialView) ? settings.initialView : 'listWeek'),
+    initialView: normView(saved) && normView(saved) !== 'agenda' ? normView(saved) : 'timeGridWeek',
     headerToolbar: false,
     footerToolbar: false,
     views: {
@@ -906,14 +1148,14 @@ function initCalendar() {
       timeGrid: { dayHeaderFormat: { weekday: 'short', day: 'numeric' }, allDayContent: '' },
       timeGridDay: { dayHeaderFormat: { weekday: 'long', day: 'numeric', month: 'long' }, titleFormat: { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' } },
       dayGridMonth: { dayMaxEvents: 4, displayEventTime: false, moreLinkText: n => `+${n}` },
-      listWeek: { listDayFormat: { weekday: 'long' }, listDaySideFormat: { day: 'numeric', month: 'long' } },
     },
     height: '100%',
     nowIndicator: true,
     eventDisplay: 'block',
     editable: true,
-    longPressDelay: 350,
-    eventLongPressDelay: 350,
+    longPressDelay: 400,
+    eventLongPressDelay: 650,
+    dragScroll: true,
     slotLabelFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
     eventTimeFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
     scrollTime: '07:30',
@@ -924,19 +1166,20 @@ function initCalendar() {
       info.jsEvent.preventDefault();
       openDetail(info.event.extendedProps.fileId, info.event.extendedProps.occDate);
     },
-    dateClick: info => {
-      if (info.view.type === 'dayGridMonth') { calendar.changeView('timeGridDay', info.date); return; }
-      openEditor(null, { date: fmtDate(info.date), allDay: info.allDay, time: info.allDay ? null : fmtTime(info.date) });
-    },
+    dateClick: info => openEditor(null, {
+      date: fmtDate(info.date),
+      allDay: info.view.type === 'dayGridMonth' ? false : info.allDay,
+      time: info.allDay ? null : fmtTime(info.date),
+    }),
     eventDrop: onMove,
     eventResize: onMove,
     datesSet: info => {
-      LS.set('fc.view', info.view.type);
+      if (currentView === 'agenda') return;
       $('#hdrTitleText').textContent = info.view.title;
-      setActiveView(info.view.type);
     },
   });
   calendar.render();
+  setView(LS.get('fc.view', null) || settings.initialView);
 
   // Balayage gauche/droite pour changer de période
   const el = $('#cal');
@@ -962,20 +1205,21 @@ function wireUI() {
   wireSettings();
 
   $('#todayNum').textContent = new Date().getDate();
-  $('#hdrPrev').onclick = () => calendar.prev();
-  $('#hdrNext').onclick = () => calendar.next();
-  $('#hdrTitle').onclick = () => calendar.today();
-  $('#btnToday').onclick = () => calendar.today();
+  $('#hdrPrev').onclick = nav.prev;
+  $('#hdrNext').onclick = nav.next;
+  $('#hdrTitle').onclick = nav.today;
+  $('#btnToday').onclick = nav.today;
   $('#btnSearch').onclick = openSearch;
   $('#btnSync').onclick = () => sync();
   $('#btnMenu').onclick = () => { renderMenu(); openDlg($('#dlgMenu')); };
   $('#menuSettings').onclick = () => openSettings({ from: $('#dlgMenu') });
   $('#menuSyncBtn').onclick = async () => { await sync(); renderMenu(); };
-  for (const b of document.querySelectorAll('#viewNav button')) b.onclick = () => calendar.changeView(b.dataset.view);
+  for (const b of document.querySelectorAll('#viewNav button')) b.onclick = () => setView(b.dataset.view);
 
   $('#fab').onclick = () => {
-    const view = calendar?.view;
     const today = todayStr();
+    if (currentView === 'agenda') { openEditor(null, { date: today }); return; }
+    const view = calendar?.view;
     const inView = view && today >= fmtDate(view.currentStart) && today < fmtDate(view.currentEnd);
     openEditor(null, { date: inView || !view ? today : fmtDate(view.currentStart) });
   };
@@ -988,12 +1232,12 @@ function wireUI() {
     const ev = getEvent(cache.files[detail.fileId]);
     const date = detail.occDate || ev?.date;
     closeDlg($('#dlgDetail'));
-    if (date) calendar.changeView('timeGridDay', date);
+    if (date) gotoDay(date);
   };
   $('#dtDelete').onclick = async () => {
     const ev = getEvent(cache.files[detail.fileId]);
     const what = ev?.type === 'recurring' ? 'toute la série récurrente' : 'cet événement';
-    if (!confirm(`Supprimer ${what} ?\nLa note ira dans la corbeille OneDrive.`)) return;
+    if (!await askConfirm(`Supprimer ${what} ?`, `« ${ev?.title || ''} »\nLa note ira dans la corbeille OneDrive.`, 'Supprimer', true)) return;
     setBusy(true);
     try {
       await deleteEvent(detail.fileId);
@@ -1020,6 +1264,19 @@ function wireUI() {
     const r = e.target.closest('.result');
     if (r) openDetail(r.dataset.id, r.dataset.date, { from: $('#dlgSearch') });
   });
+
+  // Agenda
+  $('#agenda').addEventListener('click', e => {
+    const b = e.target.closest('.ag-ev');
+    if (b) { openDetail(b.dataset.id, b.dataset.date); return; }
+    const day = e.target.closest('.ag-day');
+    if (day && e.target.closest('.ag-date, .ag-empty')) openEditor(null, { date: day.dataset.date });
+  });
+  let agRaf = 0;
+  $('#agenda').addEventListener('scroll', () => {
+    if (agRaf) return;
+    agRaf = requestAnimationFrame(() => { agRaf = 0; updateAgendaTitle(); });
+  }, { passive: true });
 
   window.addEventListener('online', () => sync({ quiet: true }));
   document.addEventListener('visibilitychange', () => {

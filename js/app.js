@@ -66,6 +66,9 @@ function ago(iso) {
   return `le ${t.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: t.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' })}`;
 }
 const DAY_NAMES = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+const toMin = t => { const [h, m] = (t || '0:0').split(':').map(Number); return h * 60 + m; };
+/** Durée en minutes entre deux heures (passage de minuit compris), 0 si inconnue. */
+const timeDiff = (a, b) => (a && b ? ((toMin(b) - toMin(a)) + 1440) % 1440 : 0);
 const addMinutes = (t, n) => { const [h, m] = t.split(':').map(Number); const x = Math.min(h * 60 + m + n, 23 * 60 + 59); return `${pad(Math.floor(x / 60))}:${pad(x % 60)}`; };
 
 // ---------- Dialogues (gestion du bouton retour Android) ----------
@@ -899,6 +902,7 @@ function openEditor(fileId, preset = {}, { from } = {}) {
   editing.bodyShown = file ? bodyShown : null; // copie : le corps est toujours écrit
   $('#evBody').value = bodyShown;
   $('#evWarn').hidden = !ev?.unsupported;
+  editing.duration = timeDiff($('#evStart').value, $('#evEnd').value) || (+settings.defaultDuration || 60);
   $('#quickHint').hidden = true;
 
   updateEditorVisibility();
@@ -929,6 +933,7 @@ function applyQuick() {
     $('#evAllDay').checked = false;
     $('#evStart').value = q.startTime;
     $('#evEnd').value = q.endTime || addMinutes(q.startTime, +settings.defaultDuration || 60);
+    editing.duration = timeDiff($('#evStart').value, $('#evEnd').value) || editing.duration;
   } else if (q.date) {
     $('#evAllDay').checked = true;
   }
@@ -1637,6 +1642,15 @@ function wireUI() {
   $('#evCal').onchange = updateCalColor;
   $('#evTitle').addEventListener('input', onTitleInput);
   $('#quickApply').onclick = applyQuick;
+  // L'heure de fin suit l'heure de début en gardant la même durée (1 h par défaut)
+  $('#evStart').addEventListener('input', () => {
+    const start = $('#evStart').value;
+    if (start) $('#evEnd').value = addMinutes(start, editing.duration || (+settings.defaultDuration || 60));
+  });
+  $('#evEnd').addEventListener('change', () => {
+    const d = timeDiff($('#evStart').value, $('#evEnd').value);
+    if (d) editing.duration = d;
+  });
   for (const id of ['#evDate', '#evStart', '#evEnd', '#evAllDay', '#evRecurring']) {
     $(id).addEventListener('input', () => { editing.touchedWhen = true; });
   }

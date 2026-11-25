@@ -1030,7 +1030,17 @@ function wireUI() {
 }
 
 async function start() {
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
+  if ('serviceWorker' in navigator) {
+    // Quand une nouvelle version de l'appli s'installe, on recharge une fois pour l'utiliser.
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (hadController && !sessionStorage.getItem('fc.swReloaded')) {
+        sessionStorage.setItem('fc.swReloaded', '1');
+        location.reload();
+      }
+    });
+    navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).catch(() => {});
+  }
   wireUI();
   initCalendar();
   updateMenuDot();

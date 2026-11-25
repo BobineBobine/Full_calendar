@@ -1,6 +1,8 @@
-// Service worker : met l'appli en cache pour un démarrage instantané et hors ligne.
+// Service worker : permet d'ouvrir l'appli hors ligne.
+// Stratégie « réseau d'abord » : en ligne, on prend toujours la dernière version
+// (pas de mélange ancien/nouveau fichiers) ; hors ligne, on sert la copie en cache.
 // Les appels OneDrive / Microsoft ne passent jamais par ce cache.
-const VERSION = 'v2';
+const VERSION = 'v3';
 const SHELL = [
   './', 'index.html', 'style.css', 'manifest.webmanifest',
   'js/app.js', 'js/auth.js', 'js/graph.js', 'js/md.js', 'js/markdown.js', 'js/nlp.js',
@@ -9,7 +11,11 @@ const SHELL = [
 ];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(
+    caches.open(VERSION)
+      .then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' }))))
+      .then(() => self.skipWaiting()),
+  );
 });
 
 self.addEventListener('activate', e => {
@@ -20,18 +26,18 @@ self.addEventListener('activate', e => {
   );
 });
 
-// Stale-while-revalidate sur les fichiers de l'appli.
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
-  const key = url.search.includes('code=') || url.search.includes('error=') ? './' : e.request;
-  e.respondWith(
-    caches.open(VERSION).then(async cache => {
-      const cached = await cache.match(key, { ignoreSearch: key === './' });
-      const network = fetch(e.request)
-        .then(res => { if (res.ok && key !== './') cache.put(e.request, res.clone()); return res; })
-        .catch(() => cached);
-      return cached || network;
-    }),
-  );
+  const isNav = e.request.mode === 'navigate';
+  e.respondWith((async () => {
+    const cache = await caches.open(VERSION);
+    try {
+      const res = await fetch(e.request, { cache: 'no-cache' });
+      if (res.ok) cache.put(isNav ? './' : e.request, res.clone());
+      return res;
+    } catch {
+      return (await cache.match(isNav ? './' : e.request, { ignoreSearch: isNav })) || Response.error();
+    }
+  })());
 });

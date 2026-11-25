@@ -12,7 +12,9 @@ const LS = {
 
 const VIEWS = ['agenda', 'timeGridDay', 'timeGrid3Day', 'timeGridWeek', 'dayGridMonth'];
 const normView = v => (v === 'listWeek' || /^list/.test(v || '')) ? 'agenda' : (VIEWS.includes(v) ? v : null);
-const DEFAULT_SETTINGS = { clientId: '', vaultPath: '', sources: [], firstDay: 1, initialView: 'agenda', defaultCalId: null };
+const DEFAULT_SETTINGS = { clientId: '', vaultPath: '', sources: [], firstDay: 1, initialView: 'agenda', defaultCalId: null,
+  theme: 'auto', textSize: 'm', weekends: true, weekNumbers: false, slotMin: 0, slotMax: 24,
+  monthLines: 2, defaultDuration: 60, dragMode: 'confirm', agendaWeeks: true };
 
 let settings = { ...DEFAULT_SETTINGS, ...LS.get('fc.settings', {}) };
 let cache = LS.get('fc.cache', { files: {} }); // id -> { id, name, calId, eTag, text }
@@ -52,6 +54,15 @@ const F = {
   dm: IF({ day: 'numeric', month: 'short' }),
 };
 const fd = (s, f) => f.format(toDate(s));
+function ago(iso) {
+  if (!iso) return '';
+  const t = new Date(iso), diff = (Date.now() - t) / 1000;
+  if (diff < 60) return "à l'instant";
+  if (diff < 3600) return `il y a ${Math.round(diff / 60)} min`;
+  if (diff < 86400) return `il y a ${Math.round(diff / 3600)} h`;
+  if (diff < 86400 * 7) return `il y a ${Math.round(diff / 86400)} j`;
+  return `le ${t.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: t.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' })}`;
+}
 const DAY_NAMES = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
 const addMinutes = (t, n) => { const [h, m] = t.split(':').map(Number); const x = Math.min(h * 60 + m + n, 23 * 60 + 59); return `${pad(Math.floor(x / 60))}:${pad(x % 60)}`; };
 
@@ -171,7 +182,7 @@ function eventsFn(info, success) {
         title: ev.title,
         start: o.start, end: o.end, allDay: o.allDay,
         backgroundColor: color, borderColor: color, textColor: textColorFor(color),
-        editable: ev.type === 'single',
+        editable: ev.type === 'single' && settings.dragMode !== 'off',
         classNames: ev.type === 'recurring' ? ['fc-recurring'] : [],
         extendedProps: { fileId: f.id, occDate: o.date },
       });
@@ -245,7 +256,10 @@ async function sync({ quiet = false } = {}) {
         if (!it.file || !/\.md$/i.test(it.name)) continue;
         seen.add(it.id);
         const c = cache.files[it.id];
-        if (c && c.eTag === it.eTag && c.calId === src.id) { c.name = it.name; continue; }
+        if (c && c.eTag === it.eTag && c.calId === src.id) {
+          c.name = it.name; c.created = it.createdDateTime; c.modified = it.lastModifiedDateTime;
+          continue;
+        }
         toFetch.push({ it, src });
       }
     }
@@ -254,7 +268,7 @@ async function sync({ quiet = false } = {}) {
     if (toFetch.length) setBusy(true, `Synchro 0/${toFetch.length}`);
     await pool(toFetch, 8, async ({ it, src }) => {
       const text = await graph.readItem(it);
-      cache.files[it.id] = { id: it.id, name: it.name, calId: src.id, eTag: it.eTag, text };
+      cache.files[it.id] = { id: it.id, name: it.name, calId: src.id, eTag: it.eTag, text, created: it.createdDateTime, modified: it.lastModifiedDateTime };
       done++;
       if (done % 5 === 0 || done === toFetch.length) setBusy(true, `Synchro ${done}/${toFetch.length}`);
     });
@@ -322,7 +336,11 @@ function fieldsFromForm(f, note, oldEv) {
 }
 
 function storeItem(item, calId, text) {
-  cache.files[item.id] = { id: item.id, name: item.name, calId, eTag: item.eTag, text };
+  const prev = cache.files[item.id];
+  cache.files[item.id] = {
+    id: item.id, name: item.name, calId, eTag: item.eTag, text,
+    created: item.createdDateTime || prev?.created, modified: item.lastModifiedDateTime || new Date().toISOString(),
+  };
   saveCache();
   refresh();
   return cache.files[item.id];
@@ -403,7 +421,7 @@ async function onMove(info) {
   };
   const label = x => `${cap(fd(x.date, F.short))}${x.allDay ? ' · journée' : ' · ' + x.startTime + (x.endTime ? '–' + x.endTime : '')}`
     + (x.endDate && x.endDate > x.date ? ` → ${fd(x.endDate, F.short)}` : '');
-  const ok = await askConfirm(info.oldEvent && +info.oldEvent.start !== +info.event.start ? 'Déplacer l’événement ?' : 'Modifier la durée ?',
+  const ok = settings.dragMode === 'direct' || await askConfirm(info.oldEvent && +info.oldEvent.start !== +info.event.start ? 'Déplacer l’événement ?' : 'Modifier la durée ?',
     `« ${ev.title} »\n${label(old)}\n↓\n${label(f)}`, 'Confirmer');
   if (!ok) { info.revert(); return; }
   try {
@@ -491,6 +509,36 @@ function collectOccurrences(rs, re) {
   return out;
 }
 
+function weekStart(d) {
+  const wd = toDate(d).getDay();
+  return md.addDays(d, -((wd - settings.firstDay + 7) % 7));
+}
+
+/** Mini-calendrier : mois en haut, semaines du mois en lignes, la semaine courante en surbrillance. */
+function miniCal(ws) {
+  // On rattache la semaine au mois de son jeudi (ou de son 4e jour), comme la norme ISO.
+  const ref = toDate(md.addDays(ws, 3));
+  const y = ref.getFullYear(), m = ref.getMonth();
+  const first = new Date(y, m, 1, 12), dim = new Date(y, m + 1, 0).getDate();
+  const offset = (first.getDay() - settings.firstDay + 7) % 7;
+  const rows = Math.ceil((dim + offset) / 7);
+  const row = Math.floor((ref.getDate() - 1 + offset) / 7);
+  const mon = F.mon.format(ref).replace('.', '').toUpperCase().slice(0, 4);
+  let grid = '';
+  for (let r = 0; r < rows; r++) grid += `<i${r === row ? ' class="on"' : ''}></i>`;
+  return { html: `<span class="mini-cal" aria-hidden="true"><span class="mc-mon">${esc(mon)}</span><span class="mc-grid">${grid}</span></span>`, n: row + 1, monthName: IF({ month: 'long' }).format(ref) };
+}
+
+function weekDivider(ws) {
+  const we = md.addDays(ws, 6);
+  const mc = miniCal(ws);
+  const range = ws.slice(0, 7) === we.slice(0, 7)
+    ? `${+ws.slice(8)} – ${fd(we, F.dm)}`
+    : `${fd(ws, F.dm)} – ${fd(we, F.dm)}`;
+  const nth = mc.n === 1 ? '1re' : `${mc.n}e`;
+  return `<div class="ag-week">${mc.html}<span><b>${nth} semaine de ${esc(mc.monthName)}</b> · ${esc(range)}</span></div>`;
+}
+
 function agItem(it) {
   const { ev } = it;
   const color = colorOf(it.src);
@@ -528,15 +576,19 @@ function renderAgenda({ keepScroll = false } = {}) {
   const atStart = agenda.start <= agenda.bounds.min;
   const atEnd = agenda.bounds.max !== null && agenda.end > agenda.bounds.max;
   let html = `<div class="ag-sentinel" id="agTop">${atStart ? '' : '<span class="ag-more">…</span>'}</div>`;
-  let curMonth = '';
+  let curMonth = '', curWeek = '';
   for (const d of days) {
     const m = d.slice(0, 7);
     if (m !== curMonth) { curMonth = m; html += `<h3 class="ag-month" data-date="${m}-01">${esc(cap(F.monthY.format(toDate(d))))}</h3>`; }
+    if (settings.agendaWeeks !== false) {
+      const ws = weekStart(d);
+      if (ws !== curWeek) { curWeek = ws; html += weekDivider(ws); }
+    }
     const list = byDay.get(d).sort((a, b) =>
       (b.ev.allDay - a.ev.allDay) || (a.ev.startTime || '').localeCompare(b.ev.startTime || '') || a.ev.title.localeCompare(b.ev.title));
     const rel = d === today ? 'Aujourd’hui' : d === md.addDays(today, 1) ? 'Demain' : d === md.addDays(today, -1) ? 'Hier' : '';
     html += `<section class="ag-day${d === today ? ' today' : ''}${d < today ? ' past' : ''}" data-date="${d}">
-      <div class="ag-date"><b>${+d.slice(8)}</b><small>${esc(fd(d, F.wd).replace('.', ''))}</small></div>
+      <div class="ag-date"><b>${+d.slice(8)}</b><span class="ag-wd"><small>${esc(fd(d, F.wd).replace('.', ''))}</small><button type="button" class="ag-add" aria-label="Ajouter un événement le ${esc(fd(d, F.short))}">+</button></span></div>
       <div class="ag-events">${rel ? `<div class="ag-rel">${rel}</div>` : ''}${list.length ? list.map(agItem).join('') : '<div class="ag-empty">Rien de prévu</div>'}</div>
     </section>`;
   }
@@ -599,10 +651,11 @@ function scrollToDate(date, smooth = false) {
   }
   const target = [...box.querySelectorAll('.ag-day, .ag-month')].find(el => el.dataset.date >= date && el.classList.contains('ag-day'))
     || box.querySelector('#agBottom');
-  // Un en-tête de mois juste au-dessus du jour visé reste visible
-  const prev = target.previousElementSibling;
-  const el = prev && prev.classList.contains('ag-month') ? prev : target;
-  box.scrollTo({ top: Math.max(0, el.offsetTop - 4), behavior: smooth ? 'smooth' : 'auto' });
+  // Les en-têtes (mois, semaine) juste au-dessus du jour visé restent visibles
+  let el = target;
+  while (el.previousElementSibling && /ag-(month|week)/.test(el.previousElementSibling.className)) el = el.previousElementSibling;
+  const top = Math.max(0, el.offsetTop - 4);
+  box.scrollTo({ top, behavior: smooth && Math.abs(top - box.scrollTop) < 2500 ? 'smooth' : 'auto' });
   updateAgendaTitle();
 }
 
@@ -668,6 +721,10 @@ function renderDetail() {
   const path = graph.joinPath(src?.directory || '', file.name.replace(/\.md$/i, ''));
   $('#dtObsidian').href = `obsidian://open?vault=${encodeURIComponent(vault)}&file=${encodeURIComponent(path)}`;
   $('#dtGoto').hidden = !(detail.occDate || ev?.date);
+  const info = [];
+  if (file.created) info.push(`Ajouté ${ago(file.created)}`);
+  if (file.modified && (!file.created || Math.abs(new Date(file.modified) - new Date(file.created)) > 60e3)) info.push(`modifié ${ago(file.modified)}`);
+  $('#dtInfo').textContent = info.join(' · ');
 }
 
 function openDetail(fileId, occDate, { from } = {}) {
@@ -757,7 +814,7 @@ function openEditor(fileId, preset = {}, { from } = {}) {
   $('#evEndDate').value = ev?.endDate && ev.endDate > (ev.date || date) && !preset.copyFrom ? ev.endDate : '';
   const start = ev?.startTime || preset.time || '09:00';
   $('#evStart').value = start;
-  $('#evEnd').value = ev ? (ev.endTime || '') : addMinutes(start, 60);
+  $('#evEnd').value = ev ? (ev.endTime || '') : addMinutes(start, +settings.defaultDuration || 60);
   $('#evStartRecur').value = ev?.startRecur || date;
   $('#evEndRecur').value = ev?.endRecur || '';
   const days = new Set(ev?.daysOfWeek?.length ? ev.daysOfWeek : [md.DAY_LETTERS[toDate(date).getDay()]]);
@@ -795,7 +852,7 @@ function applyQuick() {
   if (q.startTime) {
     $('#evAllDay').checked = false;
     $('#evStart').value = q.startTime;
-    $('#evEnd').value = q.endTime || addMinutes(q.startTime, 60);
+    $('#evEnd').value = q.endTime || addMinutes(q.startTime, +settings.defaultDuration || 60);
   } else if (q.date) {
     $('#evAllDay').checked = true;
   }
@@ -894,7 +951,9 @@ function getIndex() {
   return searchIndex;
 }
 
+let searchSort = 'date';
 function runSearch() {
+  if (searchSort !== 'date') return runRecentSearch();
   const q = $('#searchInput').value;
   const toks = fold(q).split(/\s+/).filter(Boolean);
   const today = todayStr();
@@ -942,6 +1001,36 @@ function runSearch() {
   if (past.length) {
     html += `<div class="s-group">Passés · ${past.length}</div>` + past.slice(0, LIMIT).map(item).join('');
     if (past.length > LIMIT) html += `<div class="s-more">… et ${past.length - LIMIT} autres</div>`;
+  }
+  box.innerHTML = html;
+}
+
+function runRecentSearch() {
+  const field = searchSort; // 'created' | 'modified'
+  const toks = fold($('#searchInput').value).split(/\s+/).filter(Boolean);
+  const today = todayStr();
+  let items = getIndex().filter(it => it.f[field]);
+  if (toks.length) items = items.filter(it => toks.every(t => it.hay.includes(t)));
+  else items = items.filter(it => !hidden.has(it.f.calId));
+  items.sort((a, b) => (b.f[field] || '').localeCompare(a.f[field] || ''));
+  const box = $('#searchResults');
+  if (!items.length) {
+    box.innerHTML = `<div class="s-empty">${getIndex().some(it => it.f[field]) ? 'Aucun résultat' : 'Information disponible après la prochaine synchronisation'}</div>`;
+    return;
+  }
+  const groups = [['Aujourd’hui', 1], ['7 derniers jours', 7], ['30 derniers jours', 30], ['Plus ancien', Infinity]];
+  const curYear = today.slice(0, 4);
+  let html = '', gi = -1;
+  for (const it of items.slice(0, 120)) {
+    const age = (Date.now() - new Date(it.f[field])) / 864e5;
+    const g = groups.findIndex(([, max]) => age < max);
+    if (g !== gi) { gi = g; html += `<div class="s-group">${groups[g][0]}</div>`; }
+    const occ = nextOccurrence(it.ev, today);
+    const mon = fd(occ.date, F.mon).replace('.', '') + (occ.date.slice(0, 4) !== curYear ? ` ${occ.date.slice(2, 4)}` : '');
+    const sub = `${field === 'created' ? 'Ajouté' : 'Modifié'} ${ago(it.f[field])} · ${it.src.name}`;
+    html += `<button class="result${occ.past ? ' past' : ''}" data-id="${esc(it.f.id)}" data-date="${occ.date}" style="--c:${esc(colorOf(it.src))}">
+      <span class="r-date"><b>${+occ.date.slice(8, 10)}</b><small>${esc(mon)}</small></span>
+      <span class="r-main"><span class="r-title">${highlight(it.ev.title, toks)}</span><span class="r-sub">${esc(sub)}</span></span></button>`;
   }
   box.innerHTML = html;
 }
@@ -1027,11 +1116,56 @@ function openSettings({ from } = {}) {
   $('#setVault').value = settings.vaultPath;
   $('#setView').value = normView(settings.initialView) || 'agenda';
   $('#setFirstDay').value = String(settings.firstDay);
+  $('#setTheme').value = settings.theme;
+  $('#setTextSize').value = settings.textSize;
+  $('#setWeekends').checked = settings.weekends !== false;
+  $('#setWeekNumbers').checked = !!settings.weekNumbers;
+  $('#setSlotMin').value = String(settings.slotMin ?? 0);
+  $('#setSlotMax').value = String(settings.slotMax ?? 24);
+  $('#setMonthLines').value = String(settings.monthLines ?? 2);
+  $('#setDuration').value = String(settings.defaultDuration ?? 60);
+  $('#setDrag').value = settings.dragMode || 'confirm';
+  $('#setAgendaWeeks').checked = settings.agendaWeeks !== false;
   settings.sources = settings.sources.map(s => ({ ...s }));
+  fillDefaultCal();
   renderSources();
   renderAuthState();
   const d = $('#dlgSettings');
   if (from) swapDlg(from, d); else if (!d.open) openDlg(d);
+}
+
+function fillDefaultCal() {
+  const sel = $('#setDefaultCal');
+  sel.innerHTML = '<option value="">Premier de la liste</option>';
+  for (const s of settings.sources) {
+    if (!s.directory) continue;
+    const o = document.createElement('option');
+    o.value = s.id;
+    o.textContent = s.name || s.directory;
+    sel.appendChild(o);
+  }
+  sel.value = settings.defaultCalId && sourceById(settings.defaultCalId) ? settings.defaultCalId : '';
+}
+
+/** Applique les préférences d'affichage. */
+function applyPrefs() {
+  const root = document.documentElement;
+  if (settings.theme === 'light' || settings.theme === 'dark') root.dataset.theme = settings.theme;
+  else delete root.dataset.theme;
+  root.style.setProperty('--fs', { s: '14px', m: '15px', l: '17px' }[settings.textSize] || '15px');
+  document.body.dataset.monthLines = String(settings.monthLines ?? 2);
+  const dark = settings.theme === 'dark' || (settings.theme !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+  for (const m of document.querySelectorAll('meta[name=theme-color]')) m.content = dark ? '#121316' : '#ffffff';
+  if (!calendar) return;
+  const pad2 = n => `${String(n).padStart(2, '0')}:00:00`;
+  calendar.batchRendering(() => {
+    calendar.setOption('firstDay', settings.firstDay);
+    calendar.setOption('weekends', settings.weekends !== false);
+    calendar.setOption('weekNumbers', !!settings.weekNumbers);
+    calendar.setOption('slotMinTime', pad2(settings.slotMin ?? 0));
+    calendar.setOption('slotMaxTime', pad2(settings.slotMax ?? 24));
+    calendar.setOption('editable', settings.dragMode !== 'off');
+  });
 }
 
 function readSettingsForm() {
@@ -1039,6 +1173,17 @@ function readSettingsForm() {
   settings.vaultPath = $('#setVault').value.trim().replace(/^\/+|\/+$/g, '');
   settings.initialView = $('#setView').value;
   settings.firstDay = +$('#setFirstDay').value;
+  settings.theme = $('#setTheme').value;
+  settings.textSize = $('#setTextSize').value;
+  settings.weekends = $('#setWeekends').checked;
+  settings.weekNumbers = $('#setWeekNumbers').checked;
+  settings.slotMin = +$('#setSlotMin').value;
+  settings.slotMax = Math.max(+$('#setSlotMax').value, settings.slotMin + 1);
+  settings.monthLines = +$('#setMonthLines').value;
+  settings.defaultDuration = +$('#setDuration').value;
+  settings.dragMode = $('#setDrag').value;
+  settings.agendaWeeks = $('#setAgendaWeeks').checked;
+  settings.defaultCalId = $('#setDefaultCal').value || null;
   settings.sources = settings.sources.filter(s => s.directory && s.directory.trim())
     .map((s, i) => ({ ...s, id: s.id || `cal_${Date.now()}_${i}`, name: s.name || s.directory.split('/').pop(), directory: s.directory.trim().replace(/^\/+|\/+$/g, '') }));
 }
@@ -1099,6 +1244,9 @@ function wireSettings() {
     const n = await importPluginConfig();
     toast(`${n} calendrier(s) importé(s)`);
   });
+  for (let h = 0; h <= 23; h++) $('#setSlotMin').add(new Option(`${h} h`, String(h)));
+  for (let h = 1; h <= 24; h++) $('#setSlotMax').add(new Option(`${h} h`, String(h)));
+  $('#setSources').addEventListener('input', () => fillDefaultCal());
   $('#setAddSrc').onclick = () => {
     readSettingsForm();
     settings.sources.push({ id: `cal_${Date.now()}`, name: '', directory: '', color: '#3b82f6' });
@@ -1118,7 +1266,7 @@ function wireSettings() {
     for (const [id, f] of Object.entries(cache.files)) if (!sourceById(f.calId)) delete cache.files[id];
     saveCache();
     closeDlg($('#dlgSettings'));
-    if (calendar) calendar.setOption('firstDay', settings.firstDay);
+    applyPrefs();
     parsedMemo.clear();
     refresh();
     updateMenuDot();
@@ -1147,12 +1295,17 @@ function initCalendar() {
       timeGrid3Day: { type: 'timeGrid', duration: { days: 3 }, titleFormat: { day: 'numeric', month: 'short', year: 'numeric' } },
       timeGrid: { dayHeaderFormat: { weekday: 'short', day: 'numeric' }, allDayContent: '' },
       timeGridDay: { dayHeaderFormat: { weekday: 'long', day: 'numeric', month: 'long' }, titleFormat: { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' } },
-      dayGridMonth: { dayMaxEvents: 4, displayEventTime: false, moreLinkText: n => `+${n}` },
+      dayGridMonth: { dayMaxEvents: true, displayEventTime: false, moreLinkText: n => `+${n}` },
     },
     height: '100%',
     nowIndicator: true,
     eventDisplay: 'block',
-    editable: true,
+    editable: settings.dragMode !== 'off',
+    weekends: settings.weekends !== false,
+    weekNumbers: !!settings.weekNumbers,
+    weekText: 'S',
+    slotMinTime: `${String(settings.slotMin ?? 0).padStart(2, '0')}:00:00`,
+    slotMaxTime: `${String(settings.slotMax ?? 24).padStart(2, '0')}:00:00`,
     longPressDelay: 400,
     eventLongPressDelay: 650,
     dragScroll: true,
@@ -1260,6 +1413,13 @@ function wireUI() {
   // Recherche
   let st;
   $('#searchInput').addEventListener('input', () => { clearTimeout(st); st = setTimeout(runSearch, 120); });
+  for (const b of document.querySelectorAll('#searchSort button')) {
+    b.onclick = () => {
+      searchSort = b.dataset.sort;
+      for (const x of document.querySelectorAll('#searchSort button')) x.setAttribute('aria-pressed', String(x === b));
+      runSearch();
+    };
+  }
   $('#searchResults').addEventListener('click', e => {
     const r = e.target.closest('.result');
     if (r) openDetail(r.dataset.id, r.dataset.date, { from: $('#dlgSearch') });
@@ -1270,7 +1430,7 @@ function wireUI() {
     const b = e.target.closest('.ag-ev');
     if (b) { openDetail(b.dataset.id, b.dataset.date); return; }
     const day = e.target.closest('.ag-day');
-    if (day && e.target.closest('.ag-date, .ag-empty')) openEditor(null, { date: day.dataset.date });
+    if (day && e.target.closest('.ag-add, .ag-date b, .ag-empty')) openEditor(null, { date: day.dataset.date });
   });
   let agRaf = 0;
   $('#agenda').addEventListener('scroll', () => {
@@ -1298,6 +1458,7 @@ async function start() {
     });
     navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).catch(() => {});
   }
+  applyPrefs();
   wireUI();
   initCalendar();
   updateMenuDot();

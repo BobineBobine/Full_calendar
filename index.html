@@ -10,10 +10,10 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="style.css?v=5">
+  <link rel="stylesheet" href="style.css?v=6">
   <script src="vendor/fullcalendar.min.js"></script>
   <script src="vendor/fc-fr.min.js"></script>
-  <script type="module" src="js/app.js?v=5"></script>
+  <script type="module" src="js/app.js?v=6"></script>
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -73,6 +73,7 @@
     <div class="dt-meta"><svg><use href="#i-clock"/></svg><span id="dtWhen"></span></div>
     <div class="dt-meta" id="dtRecurRow"><svg><use href="#i-repeat"/></svg><span id="dtRecur"></span></div>
     <div id="dtBody" class="md"></div>
+    <p id="dtInfo" class="dt-info"></p>
     <div class="dt-actions">
       <button type="button" id="dtEdit" class="primary"><svg><use href="#i-edit"/></svg>Modifier</button>
       <button type="button" id="dtDup"><svg><use href="#i-copy"/></svg>Dupliquer</button>
@@ -149,6 +150,11 @@
       <button type="button" class="ib" data-close aria-label="Fermer"><svg><use href="#i-left"/></svg></button>
       <input id="searchInput" type="search" placeholder="Rechercher un événement, une note…" enterkeyhint="search" autocomplete="off">
     </div>
+    <div id="searchSort" class="s-sort" role="group" aria-label="Trier">
+      <button type="button" data-sort="date" aria-pressed="true">Par date</button>
+      <button type="button" data-sort="created" aria-pressed="false">Récemment ajoutés</button>
+      <button type="button" data-sort="modified" aria-pressed="false">Récemment modifiés</button>
+    </div>
     <div id="searchResults"></div>
   </dialog>
 
@@ -209,8 +215,18 @@
         <div id="setSources"></div>
         <button type="button" id="setAddSrc">+ Ajouter un calendrier</button>
 
+      </section>
+
+      <section>
+        <h3>Affichage</h3>
         <div class="grid2">
-          <label class="field"><span>Vue par défaut</span>
+          <label class="field"><span>Thème</span>
+            <select id="setTheme"><option value="auto">Automatique</option><option value="light">Clair</option><option value="dark">Sombre</option></select>
+          </label>
+          <label class="field"><span>Taille du texte</span>
+            <select id="setTextSize"><option value="s">Petite</option><option value="m">Normale</option><option value="l">Grande</option></select>
+          </label>
+          <label class="field"><span>Vue au démarrage</span>
             <select id="setView">
               <option value="agenda">Agenda</option>
               <option value="timeGridDay">Jour</option>
@@ -220,13 +236,40 @@
             </select>
           </label>
           <label class="field"><span>Début de semaine</span>
-            <select id="setFirstDay">
-              <option value="1">Lundi</option>
-              <option value="0">Dimanche</option>
-              <option value="6">Samedi</option>
-            </select>
+            <select id="setFirstDay"><option value="1">Lundi</option><option value="0">Dimanche</option><option value="6">Samedi</option></select>
+          </label>
+          <label class="field"><span>Heures affichées : de</span>
+            <select id="setSlotMin"></select>
+          </label>
+          <label class="field"><span>à</span>
+            <select id="setSlotMax"></select>
+          </label>
+          <label class="field"><span>Vue Mois : titre sur</span>
+            <select id="setMonthLines"><option value="1">1 ligne</option><option value="2">2 lignes</option><option value="3">3 lignes</option></select>
           </label>
         </div>
+        <label class="switch"><input type="checkbox" id="setWeekends" role="switch"><span class="track"></span> Afficher les week-ends</label>
+        <label class="switch"><input type="checkbox" id="setWeekNumbers" role="switch"><span class="track"></span> Numéros de semaine</label>
+        <label class="switch"><input type="checkbox" id="setAgendaWeeks" role="switch"><span class="track"></span> Agenda : séparer les semaines</label>
+      </section>
+
+      <section>
+        <h3>Création et modification</h3>
+        <div class="grid2">
+          <label class="field"><span>Calendrier par défaut</span>
+            <select id="setDefaultCal"></select>
+          </label>
+          <label class="field"><span>Durée par défaut</span>
+            <select id="setDuration"><option value="15">15 min</option><option value="30">30 min</option><option value="45">45 min</option><option value="60">1 h</option><option value="90">1 h 30</option><option value="120">2 h</option><option value="180">3 h</option></select>
+          </label>
+        </div>
+        <label class="field"><span>Glisser-déposer (vues Jour, Semaine, Mois)</span>
+          <select id="setDrag">
+            <option value="confirm">Avec confirmation</option>
+            <option value="direct">Sans confirmation</option>
+            <option value="off">Désactivé</option>
+          </select>
+        </label>
       </section>
 
       <section>

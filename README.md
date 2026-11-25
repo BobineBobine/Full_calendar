@@ -5,6 +5,9 @@ directement les notes d'événements du plugin Obsidian **Full Calendar**
 (et **Full Calendar Remastered**) stockées sur **OneDrive**.
 
 - **Agenda à défilement infini**, vers le passé comme vers le futur, plus les vues **Jour / 3 jours / Semaine / Mois** (balayage gauche-droite pour changer de période).
+- **Séparateurs de semaine** dans l'agenda, avec une mini-icône de calendrier (mois + semaine du mois en surbrillance) et un **+** à côté de chaque jour.
+- **Dates d'ajout et de modification** des notes dans la fiche, et tri « Récemment ajoutés / modifiés » dans la recherche.
+- **Réglages** : thème, taille du texte, week-ends, numéros de semaine, plage horaire, nombre de lignes en vue Mois, durée et calendrier par défaut, glisser-déposer (avec ou sans confirmation, ou désactivé).
 - Glisser-déposer avec **confirmation** et bouton Annuler. Toucher un jour en vue Mois crée un événement.
 - **Recherche** dans les titres et le contenu des notes, sans tenir compte des accents, avec mots surlignés.
   Les événements à venir sont listés avant les passés.

@@ -4,6 +4,7 @@ import * as md from './md.js';
 import { renderMarkdown, toggleTask } from './markdown.js';
 import { parseQuick } from './nlp.js';
 import { PALETTES, applyPalette, paletteFromObsidianCss, SNIPPET_BRIDGE } from './themes.js';
+import * as assist from './assist.js';
 
 // ---------- Stockage local ----------
 const LS = {
@@ -15,7 +16,7 @@ const VIEWS = ['agenda', 'timeGridDay', 'timeGrid3Day', 'timeGridWeek', 'dayGrid
 const normView = v => (v === 'listWeek' || /^list/.test(v || '')) ? 'agenda' : (VIEWS.includes(v) ? v : null);
 const DEFAULT_SETTINGS = { clientId: '', vaultPath: '', sources: [], firstDay: 1, initialView: 'agenda', defaultCalId: null,
   theme: 'auto', textSize: 'm', weekends: true, weekNumbers: false, slotMin: 0, slotMax: 24,
-  monthLines: 2, defaultDuration: 60, dragMode: 'confirm', agendaWeeks: true, palette: 'rose', useSnippets: false, agendaEmpty: true, tabs: ['agenda', 'dayGridMonth'] };
+  monthLines: 2, defaultDuration: 60, dragMode: 'confirm', agendaWeeks: true, palette: 'rose', useSnippets: false, agendaEmpty: true, tabs: ['agenda', 'dayGridMonth'], assistFolder: '_IA/consignes' };
 
 let settings = { ...DEFAULT_SETTINGS, ...LS.get('fc.settings', {}) };
 let cache = LS.get('fc.cache', { files: {} }); // id -> { id, name, calId, eTag, text }
@@ -1124,6 +1125,158 @@ function openSearch() {
   setTimeout(() => $('#searchInput').focus(), 60);
 }
 
+// ---------- Assistant IA (consignes) ----------
+// Une note par consigne dans <coffre>/<assistFolder>. L'appli ne fait que créer
+// des notes ; la tâche planifiée du soir les traite et y écrit sa réponse.
+let asCache = LS.get('fc.assist', { files: {} }); // id -> { id, name, eTag, text, created }
+let asCtx = { lien: null, lienLabel: '', suite: null, suiteLabel: '' };
+let asLoading = false;
+const asDir = () => graph.joinPath(settings.vaultPath, settings.assistFolder || '_IA/consignes');
+const asRel = name => graph.joinPath(settings.assistFolder || '_IA/consignes', name.replace(/\.md$/i, ''));
+
+function asItems() {
+  return Object.values(asCache.files)
+    .map(f => ({ f, c: assist.parseConsigne(f.text, f.created) }))
+    .filter(x => x.c)
+    .sort((a, b) => String(a.c.cree).localeCompare(String(b.c.cree)));
+}
+
+function fmtWhen(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const day = fmtDate(d) === todayStr() ? "aujourd'hui" : IF({ weekday: 'short', day: 'numeric', month: 'short' }).format(d);
+  return `${day} ${fmtTime(d)}`;
+}
+
+function renderAssist({ scroll = false } = {}) {
+  const box = $('#asList');
+  const items = asItems();
+  const pending = items.filter(x => x.c.statut === 'a-traiter').length;
+  const waiting = items.filter(x => x.c.statut === 'attente').length;
+  $('#asState').textContent = [
+    pending ? `${pending} en file` : '',
+    waiting ? `${waiting} question${waiting > 1 ? 's' : ''} pour toi` : '',
+  ].filter(Boolean).join(' · ') || 'Rien en attente';
+  if (!items.length) {
+    box.innerHTML = '<p class="as-empty">Écris une consigne ci-dessous : Claude la lira ce soir et répondra ici.</p>';
+  } else {
+    box.innerHTML = items.map(({ f, c }) => `
+      <article class="as-item st-${esc(c.statut)}" data-id="${esc(f.id)}">
+        <div class="as-me">
+          ${c.suite ? `<div class="as-ref">↪ Réponse à « ${esc(c.suite.split('/').pop())} »</div>` : ''}
+          ${c.lien ? `<div class="as-ref">📎 ${esc(c.lien.split('/').pop())}</div>` : ''}
+          <div class="as-text">${renderMarkdown(c.ask)}</div>
+          <div class="as-meta"><span class="as-badge">${esc(c.label)}</span><span>${esc(fmtWhen(c.cree))}</span>
+            ${c.statut === 'attente' ? '<button type="button" class="as-act" data-act="reply">Répondre</button>' : ''}
+            ${c.statut === 'a-traiter' ? '<button type="button" class="as-act" data-act="cancel">Retirer</button>' : ''}
+          </div>
+        </div>
+        ${c.answer ? `<div class="as-ai"><div class="as-who">Claude${c.traite ? ' · ' + esc(c.traite) : ''}</div><div class="md">${renderMarkdown(c.answer)}</div></div>` : ''}
+      </article>`).join('');
+  }
+  renderAssistCtx();
+  if (scroll) requestAnimationFrame(() => { box.scrollTop = box.scrollHeight; });
+}
+
+function renderAssistCtx() {
+  const parts = [];
+  if (asCtx.suite) parts.push(`<span class="as-chip">↪ Réponse à « ${esc(asCtx.suiteLabel)} » <button type="button" data-clear="suite" aria-label="Retirer">×</button></span>`);
+  if (asCtx.lien) parts.push(`<span class="as-chip">📎 ${esc(asCtx.lienLabel)} <button type="button" data-clear="lien" aria-label="Retirer">×</button></span>`);
+  $('#asCtx').innerHTML = parts.join('');
+  $('#asCtx').hidden = !parts.length;
+}
+
+function updateAsDot() {
+  $('#asDot').hidden = !asItems().some(x => x.c.statut === 'attente');
+}
+
+async function loadAssist({ quiet = false } = {}) {
+  if (asLoading || !settings.vaultPath || !auth.isLoggedIn()) return;
+  asLoading = true;
+  $('#asRefresh').classList.add('spin');
+  try {
+    let items = [];
+    try { items = await graph.listChildren(asDir()); } catch (e) { if (e.status !== 404) throw e; }
+    const md = items.filter(it => it.file && /\.md$/i.test(it.name));
+    const next = {};
+    await pool(md, 6, async it => {
+      const old = asCache.files[it.id];
+      const text = old && old.eTag === it.eTag ? old.text : await graph.readItem(it);
+      next[it.id] = { id: it.id, name: it.name, eTag: it.eTag, text, created: it.createdDateTime };
+    });
+    asCache = { files: next };
+    LS.set('fc.assist', asCache);
+    if ($('#dlgAssist').open) renderAssist();
+    updateAsDot();
+  } catch (e) { if (!quiet) handleError(e); } finally {
+    asLoading = false;
+    $('#asRefresh').classList.remove('spin');
+  }
+}
+
+function openAssist(ctx = {}) {
+  if (!settings.vaultPath) { toastError("Indique d'abord ton coffre dans les réglages."); return; }
+  if (ctx.lien) { asCtx.lien = ctx.lien; asCtx.lienLabel = ctx.lienLabel || ctx.lien.split('/').pop(); }
+  const d = $('#dlgAssist');
+  if (ctx.from) swapDlg(ctx.from, d); else if (!d.open) openDlg(d);
+  renderAssist({ scroll: true });
+  loadAssist().then(() => renderAssist({ scroll: true }));
+  setTimeout(() => $('#asInput').focus(), 80);
+}
+
+function growInput() {
+  const t = $('#asInput');
+  t.style.height = 'auto';
+  t.style.height = Math.min(t.scrollHeight, 180) + 'px';
+}
+
+async function sendAssist(e) {
+  e?.preventDefault();
+  const text = $('#asInput').value.trim();
+  if (!text) return;
+  const btn = $('#asSend');
+  btn.disabled = true;
+  try {
+    const now = new Date();
+    const note = assist.buildConsigne(text, {
+      lien: asCtx.lien ? `[[${asCtx.lien}]]` : null,
+      suite: asCtx.suite ? `[[${asCtx.suite}]]` : null,
+      date: now,
+    });
+    const item = await graph.createFile(asDir(), assist.fileNameFor(text, now), note);
+    asCache.files[item.id] = { id: item.id, name: item.name, eTag: item.eTag, text: note, created: item.createdDateTime || now.toISOString() };
+    LS.set('fc.assist', asCache);
+    $('#asInput').value = '';
+    growInput();
+    asCtx = { lien: null, lienLabel: '', suite: null, suiteLabel: '' };
+    renderAssist({ scroll: true });
+    toast('Consigne envoyée. Claude la traitera ce soir.');
+  } catch (err) { handleError(err); } finally { btn.disabled = false; }
+}
+
+async function onAssistClick(e) {
+  const clr = e.target.closest('[data-clear]');
+  if (clr) { asCtx[clr.dataset.clear] = null; renderAssistCtx(); return; }
+  const act = e.target.closest('.as-act');
+  if (!act) return;
+  const f = asCache.files[act.closest('.as-item').dataset.id];
+  if (!f) return;
+  if (act.dataset.act === 'reply') {
+    asCtx.suite = asRel(f.name);
+    asCtx.suiteLabel = f.name.replace(/\.md$/i, '');
+    renderAssistCtx();
+    $('#asInput').focus();
+  } else if (act.dataset.act === 'cancel') {
+    if (!await askConfirm('Retirer cette consigne ?', 'La note ira dans la corbeille OneDrive.', 'Retirer', true)) return;
+    try {
+      await graph.deleteItem(f.id);
+      delete asCache.files[f.id];
+      LS.set('fc.assist', asCache);
+      renderAssist();
+    } catch (err) { handleError(err); }
+  }
+}
+
 // ---------- Menu calendriers ----------
 function updateMenuDot() { $('#menuDot').hidden = !settings.sources.some(s => hidden.has(s.id)); }
 
@@ -1196,6 +1349,7 @@ function openSettings({ from } = {}) {
   $('#setClientId').value = settings.clientId;
   $('#setRedirect').textContent = auth.redirectUri();
   $('#setVault').value = settings.vaultPath;
+  $('#setAssistFolder').value = settings.assistFolder || '_IA/consignes';
   $('#setView').value = normView(settings.initialView) || 'agenda';
   $('#setFirstDay').value = String(settings.firstDay);
   $('#setTheme').value = settings.theme;
@@ -1345,6 +1499,7 @@ function applyPrefs() {
 function readSettingsForm() {
   settings.clientId = $('#setClientId').value.trim();
   settings.vaultPath = $('#setVault').value.trim().replace(/^\/+|\/+$/g, '');
+  settings.assistFolder = $('#setAssistFolder').value.trim().replace(/^\/+|\/+$/g, '') || '_IA/consignes';
   settings.initialView = $('#setView').value;
   settings.firstDay = +$('#setFirstDay').value;
   settings.theme = $('#setTheme').value;
@@ -1586,6 +1741,7 @@ function wireUI() {
   $('#hdrTitle').onclick = nav.today;
   $('#btnToday').onclick = nav.today;
   $('#btnSearch').onclick = openSearch;
+  $('#btnAssist').onclick = () => openAssist();
   $('#btnSync').onclick = () => sync();
   $('#btnMenu').onclick = () => { renderMenu(); openDlg($('#dlgMenu')); };
   $('#menuSettings').onclick = () => openSettings({ from: $('#dlgMenu') });
@@ -1655,6 +1811,20 @@ function wireUI() {
     $(id).addEventListener('input', () => { editing.touchedWhen = true; });
   }
 
+  // Assistant IA
+  $('#asForm').onsubmit = sendAssist;
+  $('#asInput').addEventListener('input', growInput);
+  $('#asInput').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) sendAssist(e); });
+  $('#asRefresh').onclick = () => loadAssist().then(() => renderAssist({ scroll: true }));
+  $('#dlgAssist').addEventListener('click', onAssistClick);
+  $('#dtAsk').onclick = () => {
+    const file = cache.files[detail.fileId];
+    const src = sourceById(file?.calId);
+    if (!file) return;
+    const ev = getEvent(file);
+    openAssist({ lien: graph.joinPath(src?.directory || '', file.name.replace(/\.md$/i, '')), lienLabel: ev?.title || file.name, from: $('#dlgDetail') });
+  };
+
   // Recherche
   let st;
   $('#searchInput').addEventListener('input', () => { clearTimeout(st); st = setTimeout(runSearch, 120); });
@@ -1687,7 +1857,7 @@ function wireUI() {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible') return;
     $('#todayNum').textContent = new Date().getDate();
-    if (Date.now() - lastSync > 60e3) sync({ quiet: true });
+    if (Date.now() - lastSync > 60e3) { sync({ quiet: true }); loadAssist({ quiet: true }); }
   });
 }
 
@@ -1707,6 +1877,7 @@ async function start() {
   wireUI();
   initCalendar();
   updateMenuDot();
+  updateAsDot();
 
   let redirect = null;
   try { redirect = await auth.handleRedirect(settings.clientId); }
@@ -1731,6 +1902,7 @@ async function start() {
     return;
   }
   sync({ quiet: true });
+  loadAssist({ quiet: true });
 }
 
 start();

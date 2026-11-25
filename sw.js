@@ -2,10 +2,10 @@
 // Stratégie « réseau d'abord » : en ligne, on prend toujours la dernière version
 // (pas de mélange ancien/nouveau fichiers) ; hors ligne, on sert la copie en cache.
 // Les appels OneDrive / Microsoft ne passent jamais par ce cache.
-const VERSION = 'v5';
+const VERSION = 'v6';
 const SHELL = [
   './', 'index.html', 'style.css', 'manifest.webmanifest',
-  'js/app.js', 'js/auth.js', 'js/graph.js', 'js/md.js', 'js/markdown.js', 'js/nlp.js', 'js/themes.js',
+  'js/app.js', 'js/auth.js', 'js/graph.js', 'js/md.js', 'js/markdown.js', 'js/nlp.js', 'js/themes.js', 'js/assist.js',
   'vendor/fullcalendar.min.js', 'vendor/fc-fr.min.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
 ];

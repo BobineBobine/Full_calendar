@@ -71,10 +71,11 @@ export async function writeFile(id, text, eTag) {
   return (await req(`/me/drive/items/${id}/content`, { method: 'PUT', headers, body: text })).json();
 }
 
-export async function moveRename(id, { name, folder }) {
+export async function moveRename(id, { name, folder, parentId }) {
   const body = {};
   if (name) body.name = name;
-  if (folder) {
+  if (parentId) body.parentReference = { id: parentId };
+  else if (folder) {
     const p = await (await req(`${rootPath(folder)}?$select=id`)).json();
     body.parentReference = { id: p.id };
   }
@@ -132,4 +133,12 @@ export async function delta(path, link = null) {
 /** Contenu binaire d'un fichier (image intégrée…). */
 export async function readBlob(id) {
   return (await req(`/me/drive/items/${id}/content`)).blob();
+}
+
+/** Crée un dossier (renommé automatiquement si le nom est pris). */
+export async function createFolder(parentPath, name) {
+  return (await req(`${rootPath(parentPath)}/children`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, folder: {}, '@microsoft.graph.conflictBehavior': 'rename' }),
+  })).json();
 }

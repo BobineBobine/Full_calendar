@@ -611,3 +611,33 @@ body.view-vault #selAsk { bottom: calc(80px + env(safe-area-inset-bottom)); }
   .vt-back { display: inline-flex !important; }
   .vt-doc { padding: 12px 14px 30vh; }
 }
+
+/* ---- Coffre : menu clic droit, glisser-déposer ---- */
+.vt-menu {
+  position: fixed; z-index: 60; min-width: 220px; max-width: calc(100vw - 12px); padding: 5px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow);
+  display: flex; flex-direction: column;
+}
+.vt-menu button {
+  justify-content: flex-start; border: 0; background: transparent; min-height: 32px; padding: 5px 10px;
+  border-radius: 6px; font-size: .88rem; gap: 10px; white-space: nowrap;
+}
+.vt-menu button:hover, .vt-menu button:focus-visible { background: var(--surface2); outline: none; }
+.vt-menu button svg { width: 16px; height: 16px; color: var(--muted); }
+.vt-menu button.danger, .vt-menu button.danger svg { color: var(--danger); }
+.vt-menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 2px; }
+.vt-menu-head { padding: 4px 10px 6px; font-size: .76rem; color: var(--muted); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 280px; }
+.vt-row.ctx { box-shadow: inset 0 0 0 1px var(--accent); }
+.vt-row.drop { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
+#vtTree.drop-root { box-shadow: inset 0 0 0 2px var(--accent); border-radius: 6px; }
+#dlgPrompt input { margin: 6px 0 4px; }
+
+/* ---- Complétion des liens [[ ---- */
+.lc-box {
+  position: fixed; z-index: 70; max-height: 280px; overflow-y: auto; padding: 4px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow);
+}
+.lc-item { display: flex; flex-direction: column; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: .9rem; }
+.lc-item small { color: var(--muted); font-size: .74rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lc-item b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lc-item.on { background: var(--accent-soft); }

@@ -1868,6 +1868,10 @@ function wireUI() {
 
   // Fiche
   $('#dtBody').addEventListener('change', onTaskToggle);
+  $('#dtBody').addEventListener('click', e => {
+    const a = e.target.closest('a.wikilink');
+    if (a) { e.preventDefault(); openLink(a.dataset.link); }
+  });
   $('#dtEdit').onclick = () => openEditor(detail.fileId, {}, { from: $('#dlgDetail') });
   $('#dtHistory').onclick = openHistory;
   $('#dtDup').onclick = () => openEditor(null, { copyFrom: detail.fileId }, { from: $('#dlgDetail') });
@@ -1974,6 +1978,31 @@ function wireUI() {
   });
 }
 
+/** Lien [[…]] cliqué hors du Coffre (note du jour, fiche d'un événement) : ouvert dans l'onglet Coffre. */
+function openLink(target) {
+  for (const d of [...dlgStack].reverse()) closeDlg(d);
+  setView('vault');
+  vault.openLink(target);
+}
+
+/** Petite fenêtre de saisie. Renvoie le texte, ou null si annulé. */
+function askText(title, value = '', { ok = 'OK', list = [], placeholder = '' } = {}) {
+  return new Promise(res => {
+    const d = $('#dlgPrompt'), inp = $('#prInput');
+    $('#prTitle').textContent = title;
+    $('#prYes').textContent = ok;
+    inp.value = value;
+    inp.placeholder = placeholder;
+    $('#prList').innerHTML = list.map(v => `<option value="${esc(v)}"></option>`).join('');
+    let out = null;
+    $('#prForm').onsubmit = e => { e.preventDefault(); out = inp.value; closeDlg(d); };
+    $('#prNo').onclick = () => closeDlg(d);
+    d.addEventListener('close', () => res(out), { once: true });
+    openDlg(d);
+    setTimeout(() => { inp.focus(); inp.select(); }, 30);
+  });
+}
+
 function updateSelAsk() { $('#selAsk').hidden = !notePane()?.selection() || $('#dlgAssist').open; }
 
 async function start() {
@@ -1991,7 +2020,7 @@ async function start() {
   applyPrefs();
   vault.init({
     settings: () => settings,
-    toast, handleError, askConfirm,
+    toast, handleError, askConfirm, askText,
     setTitle: t => { $('#hdrTitleText').textContent = t; },
     onSelection: () => updateSelAsk(),
     openSettings: () => openSettings(),
@@ -2002,6 +2031,9 @@ async function start() {
     toast, handleError, openDlg, closeDlg,
     setTitle: t => { $('#hdrTitleText').textContent = t; },
     onSelection: () => updateSelAsk(),
+    suggest: q => vault.suggest(q),
+    ensureIndex: () => vault.ensureIndex(),
+    openLink,
   });
   wireUI();
   initCalendar();

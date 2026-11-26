@@ -67,12 +67,18 @@ Un « Obsidian en ligne » branché sur OneDrive, pensé pour l'ordinateur (s'ad
   notes intégrées `![[note]]`) et **modification** (Ctrl+E), enregistrement automatique avec contrôle des conflits.
 - **Liens `[[…]]` cliquables** : ouvrent la note, ou la créent si elle n'existe pas (comme Obsidian). Liens absents en plus pâle.
 - **Rétroliens** sous chaque note, **recherche** dans les noms et le contenu de tout le coffre (sans accents).
+- **Clic droit** (appui long sur téléphone) sur une note, un dossier ou le vide : nouvelle note ou nouveau dossier
+  à cet endroit, renommer, déplacer vers…, copier le lien `[[…]]`, ouvrir dans Obsidian, supprimer.
+  **Glisser-déposer** une note ou un dossier pour le déplacer (à la souris).
+- **Renommer** une note propose de **mettre à jour les liens** qui pointent vers elle, comme Obsidian.
+- **Complétion des liens** : taper `[[` propose les notes du coffre (↑ ↓, Entrée), dans le Coffre **et dans l'onglet Notes**.
+  Les liens de la note du jour et des fiches d'événements s'ouvrent dans le Coffre.
 - **Créer** (Ctrl+N), **renommer** (en modifiant le titre), **supprimer** (corbeille OneDrive), ouvrir dans Obsidian.
 - ‹ › en haut : note précédente / suivante (aussi Alt+← / Alt+→). Ctrl+O : chercher.
 - La première ouverture lit tout le coffre ; ensuite seules les notes modifiées sont retéléchargées
   (API « delta » de OneDrive). Le texte est gardé dans le navigateur (IndexedDB) : recherche instantanée, lecture hors ligne.
-- Pas (encore) de vue graphe, de plugins ni d'aperçu en direct pendant la frappe. Renommer une note ne met pas à jour
-  les liens qui pointent vers elle (l'appli indique combien il y en a).
+- Pas (encore) de vue graphe, de plugins ni d'aperçu en direct pendant la frappe. Renommer ou déplacer un dossier
+  ne réécrit pas les liens écrits avec le chemin complet (`[[Dossier/Note]]`).
 
 ## Mise en place (une seule fois)
 
@@ -133,6 +139,7 @@ Tests : `node tests/md.test.mjs && node tests/extra.test.mjs && node tests/daily
 - `js/nlp.js` : saisie rapide en français.
 - `js/markdown.js` : rendu des notes et cases à cocher.
 - `js/assist.js` : format des notes de consigne pour l'assistant IA.
-- `js/vault.js` : onglet Coffre (arborescence, lecture/édition, liens, rétroliens, recherche).
+- `js/vault.js` : onglet Coffre (arborescence, menu clic droit, lecture/édition, liens, rétroliens, recherche).
+- `js/linkcomplete.js` : complétion des liens `[[…]]` dans les zones de texte.
 - `js/notes.js` / `js/daily.js` : onglet Notes (note quotidienne) et format des notes quotidiennes d'Obsidian.
 - `js/app.js` : interface (FullCalendar 6, fourni dans `vendor/`, licence MIT).

@@ -7,6 +7,7 @@ import * as auth from './auth.js';
 import * as graph from './graph.js';
 import { renderMarkdown, toggleTask } from './markdown.js';
 import { splitRaw } from './daily.js';
+import * as linkcomplete from './linkcomplete.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -201,6 +202,8 @@ export async function sync({ quiet = true } = {}) {
 
 // ---------- Arborescence ----------
 let open = new Set(LS.get('vt.open', []));
+// Glisser-déposer seulement à la souris : sur téléphone, l'appui long ouvre le menu.
+const DRAG = matchMedia('(pointer: fine)').matches ? 'draggable="true"' : '';
 const saveOpen = () => LS.set('vt.open', [...open]);
 
 function treeHtml(parent, depth) {
@@ -209,11 +212,11 @@ function treeHtml(parent, depth) {
     const pad = `style="padding-left:${8 + depth * 14}px"`;
     if (it.folder) {
       const o = open.has(id);
-      return `<div class="vt-row vt-dir${o ? ' open' : ''}" data-id="${id}" ${pad}><svg><use href="#i-right"/></svg><span>${esc(it.name)}</span></div>`
+      return `<div class="vt-row vt-dir${o ? ' open' : ''}" data-id="${id}" ${DRAG} ${pad}><svg><use href="#i-right"/></svg><span>${esc(it.name)}</span></div>`
         + (o ? treeHtml(id, depth + 1) : '');
     }
     const md = isMd(it.name);
-    return `<div class="vt-row vt-file${md ? '' : ' other'}${id === cur.id ? ' on' : ''}" data-id="${id}" ${pad}><span>${esc(md ? base(it.name) : it.name)}</span></div>`;
+    return `<div class="vt-row vt-file${md ? '' : ' other'}${id === cur.id ? ' on' : ''}" data-id="${id}" ${DRAG} ${pad}><span>${esc(md ? base(it.name) : it.name)}</span></div>`;
   }).join('');
 }
 function renderTree() {
@@ -411,9 +414,8 @@ function linksOf(id) {
   for (const m of t.matchAll(/\]\(([^)\s]+\.md)\)/g)) out.push({ target: decodeURIComponent(m[1]), index: m.index });
   return out;
 }
-function renderBacklinks() {
-  const box = $('#vtBacklinks');
-  if (!cur.id) { box.innerHTML = ''; return; }
+/** id -> [{ from, index }] : qui pointe vers qui. */
+function backlinks() {
   if (!backlinkMemo) {
     backlinkMemo = {};
     for (const id of Object.values(byPath)) {
@@ -424,7 +426,12 @@ function renderBacklinks() {
       }
     }
   }
-  const list = backlinkMemo[cur.id] || [];
+  return backlinkMemo;
+}
+function renderBacklinks() {
+  const box = $('#vtBacklinks');
+  if (!cur.id) { box.innerHTML = ''; return; }
+  const list = backlinks()[cur.id] || [];
   const seen = new Map();
   for (const b of list) { if (!seen.has(b.from)) seen.set(b.from, []); seen.get(b.from).push(b.index); }
   // Mentions sans lien (le nom apparaît dans le texte)
@@ -535,38 +542,11 @@ async function newNote() {
 async function rename() {
   const id = cur.id;
   if (!id) return;
-  const it = meta.items[id];
-  const name = $('#vtTitle').value.replace(/[\\/:*?"<>|#^[\]]/g, ' ').trim();
-  if (!name || name === base(it.name)) { $('#vtTitle').value = base(it.name); return; }
-  try {
-    await flush();
-    const out = await graph.moveRename(id, { name: name + '.md' });
-    const oldBase = base(it.name);
-    it.name = out.name; it.eTag = out.eTag;
-    rebuild(); persist();
-    $('#vtTitle').value = base(out.name);
-    headerTitle(); renderTree();
-    renderBacklinks();
-    const refs = new Set((backlinkMemo[id] || []).map(b => b.from)).size;
-    ctx.toast(refs ? `Renommée. ${refs} note(s) ont encore un lien vers « ${oldBase} » : Obsidian peut les mettre à jour.` : 'Note renommée');
-  } catch (e) { $('#vtTitle').value = base(it.name); ctx.handleError(e); }
+  const name = $('#vtTitle').value;
+  if (!await renameItem(id, name)) $('#vtTitle').value = base(meta.items[id]?.name || '');
 }
 
-async function removeNote() {
-  const id = cur.id;
-  if (!id) return;
-  const it = meta.items[id];
-  if (!await ctx.askConfirm('Supprimer cette note ?', `« ${base(it.name)} »\nElle ira dans la corbeille OneDrive.`, 'Supprimer', true)) return;
-  try {
-    clearTimeout(saveTimer); delete drafts[id]; saveDrafts();
-    await graph.deleteItem(id);
-    delete meta.items[id]; delete texts[id];
-    rebuild(); persist();
-    hist = hist.filter(h => h !== id); histPos = hist.length - 1;
-    closeNote();
-    ctx.toast('Note supprimée (corbeille OneDrive)');
-  } catch (e) { ctx.handleError(e); }
-}
+const removeNote = () => cur.id && removeItem(cur.id);
 
 function closeNote() {
   Object.assign(cur, { id: null, eTag: null, base: '', loaded: false });
@@ -591,6 +571,230 @@ async function followLink(target) {
   }
   const nid = await createNote(parts.pop(), folder);
   if (nid) { await openNote(nid); setMode('edit'); }
+}
+
+// ---------- Opérations sur les fichiers et dossiers (menu clic droit) ----------
+const cleanName = n => String(n || '').replace(/[\\/:*?"<>|#^[\]]/g, ' ').replace(/\s+/g, ' ').trim();
+const escRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const label = id => (meta.items[id].folder || !isMd(meta.items[id].name) ? meta.items[id].name : base(meta.items[id].name));
+const descendants = fid => (children[fid] || []).flatMap(c => [c, ...(meta.items[c].folder ? descendants(c) : [])]);
+const allFolders = () => [meta.rootId, ...Object.keys(meta.items).filter(k => meta.items[k].folder && visible(k))];
+const folderLabel = fid => (fid === meta.rootId ? '/' : paths[fid]);
+
+async function newNoteIn(folderId) {
+  const id = await createNote('Sans titre', folderId);
+  if (!id) return;
+  open.add(folderId); saveOpen();
+  await openNote(id);
+  setMode('edit', { focus: false });
+  const t = $('#vtTitle'); t.focus(); t.select();
+}
+
+async function newFolderIn(parentId) {
+  const name = cleanName(await ctx.askText('Nouveau dossier', 'Sans titre', { ok: 'Créer' }));
+  if (!name) return;
+  try {
+    const f = await graph.createFolder(graph.joinPath(vaultPath(), folderPath(parentId)), name);
+    meta.items[f.id] = { id: f.id, name: f.name, parent: parentId, folder: true, eTag: f.eTag };
+    open.add(parentId); open.add(f.id); saveOpen();
+    rebuild(); persist(); renderTree();
+  } catch (e) { ctx.handleError(e); }
+}
+
+/**
+ * Renomme une note, un fichier ou un dossier. Pour une note, propose de mettre à jour
+ * les liens [[…]] des autres notes (comme Obsidian). Renvoie true si c'est fait.
+ */
+async function renameItem(id, newName = null) {
+  const it = meta.items[id];
+  if (!it) return false;
+  const md = !it.folder && isMd(it.name);
+  if (newName === null) newName = await ctx.askText(it.folder ? 'Renommer le dossier' : 'Renommer', label(id), { ok: 'Renommer' });
+  let name = cleanName(newName);
+  if (!name || name === label(id)) return false;
+  if (md) name += '.md';
+  try {
+    if (id === cur.id) await flush();
+    const oldBase = base(it.name), oldPath = base(paths[id]);
+    const sources = md ? [...new Set((backlinks()[id] || []).map(b => b.from))] : [];
+    const out = await graph.moveRename(id, { name });
+    it.name = out.name; it.eTag = out.eTag;
+    rebuild(); persist();
+    if (id === cur.id) { $('#vtTitle').value = base(out.name); headerTitle(); }
+    renderTree();
+    if (sources.length && await ctx.askConfirm('Mettre à jour les liens ?',
+      `${sources.length} note(s) pointent vers « ${oldBase} ». Les modifier pour pointer vers « ${base(out.name)} » ?`, 'Mettre à jour')) {
+      await rewriteLinks(sources, id, oldBase, oldPath);
+    }
+    if (cur.id) renderBacklinks();
+    if (cur.id && mode === 'read') renderPreview();
+    return true;
+  } catch (e) { ctx.handleError(e); return false; }
+}
+
+/** Remplace [[ancien nom…]] par [[nouveau nom…]] dans les notes données. */
+async function rewriteLinks(sources, id, oldBase, oldPath) {
+  const newBase = base(meta.items[id].name), newPath = base(paths[id]);
+  const re = new RegExp(`(!?\\[\\[)(${escRe(oldPath)}|${escRe(oldBase)})(\\.md)?((?:#[^\\]|]*)?(?:\\|[^\\]]*)?\\]\\])`, 'gi');
+  let n = 0;
+  for (const src of sources) {
+    if (src === cur.id && dirty()) await flush();
+    const t = texts[src]?.text;
+    if (t == null) continue;
+    const next = t.replace(re, (m, open, target, ext, rest) => open + (target.includes('/') ? newPath : newBase) + (ext || '') + rest);
+    if (next === t) continue;
+    try {
+      const o = await graph.writeFile(src, next, texts[src].eTag);
+      texts[src] = { eTag: o.eTag, text: next };
+      meta.items[src].eTag = o.eTag;
+      if (src === cur.id) reloadCurrent(next, o.eTag);
+      n++;
+    } catch (e) { console.warn(e); ctx.toast(`Lien non mis à jour dans « ${label(src)} » (modifiée ailleurs ?)`, { error: true }); }
+  }
+  backlinkMemo = null; persist();
+  if (n) ctx.toast(`Liens mis à jour dans ${n} note(s)`);
+}
+
+async function moveItem(id, folderId) {
+  const it = meta.items[id];
+  if (!it || !folderId || it.parent === folderId || id === folderId) return;
+  if (it.folder && descendants(id).includes(folderId)) { ctx.toast('Impossible de déplacer un dossier dans lui-même.', { error: true }); return; }
+  try {
+    if (id === cur.id) await flush();
+    const out = await graph.moveRename(id, { parentId: folderId });
+    it.parent = folderId; it.name = out.name; it.eTag = out.eTag;
+    open.add(folderId); saveOpen();
+    rebuild(); persist(); renderTree();
+    if (id === cur.id) $('#vtCrumbs').textContent = paths[id].split('/').slice(0, -1).join(' / ');
+    ctx.toast(`Déplacé dans ${folderLabel(folderId)}`);
+  } catch (e) { ctx.handleError(e); }
+}
+
+async function askMove(id) {
+  const opts = allFolders().filter(f => f !== meta.items[id].parent && f !== id && !(meta.items[id].folder && descendants(id).includes(f)));
+  const ans = await ctx.askText(`Déplacer « ${label(id)} » vers…`, '', { ok: 'Déplacer', list: opts.map(folderLabel), placeholder: 'Dossier (/ pour la racine)' });
+  if (ans == null) return;
+  const want = ans.trim().replace(/^\/+|\/+$/g, '').toLowerCase();
+  const fid = want === '' ? meta.rootId : opts.find(f => (paths[f] || '').toLowerCase() === want);
+  if (!fid) { ctx.toast(`Dossier introuvable : ${ans}`, { error: true }); return; }
+  moveItem(id, fid);
+}
+
+async function removeItem(id) {
+  const it = meta.items[id];
+  if (!it) return;
+  const inside = it.folder ? descendants(id).filter(d => !meta.items[d].folder).length : 0;
+  const msg = it.folder ? `Le dossier « ${it.name} »${inside ? ` et ses ${inside} fichier(s)` : ''} iront dans la corbeille OneDrive.` : `« ${label(id)} »\nElle ira dans la corbeille OneDrive.`;
+  if (!await ctx.askConfirm(it.folder ? 'Supprimer ce dossier ?' : 'Supprimer cette note ?', msg, 'Supprimer', true)) return;
+  try {
+    const gone = [id, ...(it.folder ? descendants(id) : [])];
+    if (gone.includes(cur.id)) { clearTimeout(saveTimer); closeNote(); }
+    for (const g of gone) delete drafts[g];
+    saveDrafts();
+    await graph.deleteItem(id);
+    for (const g of gone) { delete meta.items[g]; delete texts[g]; }
+    hist = hist.filter(h => !gone.includes(h)); histPos = hist.length - 1;
+    rebuild(); persist(); renderTree();
+    ctx.toast('Supprimé (corbeille OneDrive)');
+  } catch (e) { ctx.handleError(e); }
+}
+
+function linkText(id) {
+  const it = meta.items[id];
+  const short = isMd(it.name) ? base(it.name) : it.name;
+  const unique = (byBase[short.toLowerCase()] || []).length <= 1;
+  return unique ? short : (isMd(it.name) ? base(paths[id]) : paths[id]);
+}
+async function copyLink(id) {
+  const l = `[[${linkText(id)}]]`;
+  try { await navigator.clipboard.writeText(l); ctx.toast(`Copié : ${l}`); } catch { ctx.toast(l); }
+}
+const obsidianHref = id => `obsidian://open?vault=${encodeURIComponent(vaultName())}&file=${encodeURIComponent(isMd(paths[id]) ? base(paths[id]) : paths[id])}`;
+
+// Menu contextuel (clic droit, ou appui long sur téléphone)
+function showMenu(x, y, id) {
+  const m = $('#vtMenu');
+  const it = id ? meta.items[id] : null;
+  const folderId = !it ? meta.rootId : it.folder ? id : it.parent;
+  const entries = [];
+  const add = (act, icon, text, cls = '') => entries.push(`<button type="button" data-act="${act}" class="${cls}"><svg><use href="#${icon}"/></svg>${text}</button>`);
+  const sep = () => entries.push('<hr>');
+  if (it && !it.folder) { add('open', 'i-ext', 'Ouvrir'); sep(); }
+  add('newNote', 'i-plus', it && !it.folder ? 'Nouvelle note dans ce dossier' : 'Nouvelle note');
+  add('newFolder', 'i-folder', it && !it.folder ? 'Nouveau dossier ici' : 'Nouveau dossier');
+  if (it) {
+    sep();
+    add('rename', 'i-edit', 'Renommer…');
+    add('move', 'i-right', 'Déplacer vers…');
+    if (!it.folder) add('copyLink', 'i-copy', 'Copier le lien [[…]]');
+    if (!it.folder) add('obsidian', 'i-ext', 'Ouvrir dans Obsidian');
+    sep();
+    add('delete', 'i-trash', 'Supprimer', 'danger');
+  }
+  m.innerHTML = (it ? `<div class="vt-menu-head">${esc(label(id))}</div>` : '') + entries.join('');
+  m.hidden = false;
+  m.onclick = e => {
+    const b = e.target.closest('button[data-act]');
+    if (!b) return;
+    hideMenu();
+    ({
+      open: () => openNote(id),
+      newNote: () => newNoteIn(folderId),
+      newFolder: () => newFolderIn(folderId),
+      rename: () => renameItem(id),
+      move: () => askMove(id),
+      copyLink: () => copyLink(id),
+      obsidian: () => { location.href = obsidianHref(id); },
+      delete: () => removeItem(id),
+    })[b.dataset.act]();
+  };
+  const r = m.getBoundingClientRect();
+  m.style.left = Math.max(6, Math.min(x, innerWidth - r.width - 6)) + 'px';
+  m.style.top = Math.max(6, Math.min(y, innerHeight - r.height - 6)) + 'px';
+  for (const row of document.querySelectorAll('#vtTree .vt-row.ctx')) row.classList.remove('ctx');
+  if (id) document.querySelector(`#vtTree .vt-row[data-id="${id}"]`)?.classList.add('ctx');
+  m.querySelector('button')?.focus({ preventScroll: true });
+}
+function hideMenu() {
+  $('#vtMenu').hidden = true;
+  for (const row of document.querySelectorAll('#vtTree .vt-row.ctx')) row.classList.remove('ctx');
+}
+
+// ---------- Liens [[…]] depuis les autres onglets ----------
+/** Notes proposées en tapant [[… (le nom le plus proche d'abord, puis les plus récentes). */
+export function suggest(q) {
+  const fq = fold(q.trim());
+  const out = [];
+  for (const id of Object.values(byPath)) {
+    const it = meta.items[id];
+    const name = isMd(it.name) ? base(it.name) : it.name;
+    const fn = fold(name), fp = fold(paths[id]);
+    let score;
+    if (!fq) score = 1;
+    else if (fn.startsWith(fq)) score = 4;
+    else if (fn.split(/[\s\-_.]+/).some(w => w.startsWith(fq))) score = 3;
+    else if (fn.includes(fq)) score = 2;
+    else if (fp.includes(fq)) score = 1;
+    else continue;
+    out.push({ id, score, mtime: it.mtime || '', md: isMd(it.name) });
+  }
+  out.sort((a, b) => b.score - a.score || (b.md - a.md) || String(b.mtime).localeCompare(String(a.mtime)));
+  return out.slice(0, 12).map(({ id }) => {
+    const dir = paths[id].split('/').slice(0, -1).join('/');
+    return { label: label(id), insert: linkText(id), hint: dir };
+  });
+}
+/** Prépare l'index du coffre (pour la complétion dans l'onglet Notes). */
+export async function ensureIndex() {
+  if (!configured()) return;
+  await load();
+  if (!meta.deltaLink && auth.isLoggedIn()) sync();
+}
+/** Ouvre un lien [[…]] cliqué ailleurs (onglet Notes) : app.js a déjà affiché l'onglet Coffre. */
+export async function openLink(target) {
+  await load();
+  if (!Object.keys(meta.items).length) await sync();
+  followLink(target);
 }
 
 // ---------- API pour app.js ----------
@@ -645,6 +849,46 @@ export function reset() {
 
 export function init(c) {
   ctx = c;
+  linkcomplete.attach($('#vtEditor'), suggest);
+  // Menu clic droit (et appui long sur téléphone)
+  $('#vtTree').addEventListener('contextmenu', e => {
+    e.preventDefault();
+    const row = e.target.closest('.vt-row');
+    if (row && row.classList.contains('vt-res') && !meta.items[row.dataset.id]) return;
+    showMenu(e.clientX, e.clientY, row ? row.dataset.id : null);
+  });
+  document.addEventListener('pointerdown', e => { if (!$('#vtMenu').hidden && !e.target.closest('#vtMenu')) hideMenu(); }, true);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#vtMenu').hidden) { e.preventDefault(); hideMenu(); } });
+  $('#vtTree').addEventListener('scroll', hideMenu, { passive: true });
+  // Glisser-déposer (ordinateur) : déplacer une note ou un dossier
+  let dragId = null;
+  const tree = $('#vtTree');
+  tree.addEventListener('dragstart', e => {
+    const row = e.target.closest('.vt-row');
+    if (!row) return;
+    dragId = row.dataset.id;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', `[[${linkText(dragId)}]]`); // déposé dans l'éditeur : insère le lien
+  });
+  const dropTarget = e => {
+    const row = e.target.closest('.vt-row');
+    if (!row) return meta.rootId;
+    const it = meta.items[row.dataset.id];
+    return it?.folder ? it.id : it?.parent;
+  };
+  tree.addEventListener('dragover', e => {
+    if (!dragId) return;
+    e.preventDefault();
+    const t = dropTarget(e);
+    for (const r of tree.querySelectorAll('.drop')) r.classList.remove('drop');
+    tree.classList.toggle('drop-root', t === meta.rootId);
+    if (t !== meta.rootId) tree.querySelector(`.vt-row[data-id="${t}"]`)?.classList.add('drop');
+  });
+  const endDrag = () => { dragId = null; tree.classList.remove('drop-root'); for (const r of tree.querySelectorAll('.drop')) r.classList.remove('drop'); };
+  tree.addEventListener('dragleave', e => { if (!tree.contains(e.relatedTarget)) { tree.classList.remove('drop-root'); for (const r of tree.querySelectorAll('.drop')) r.classList.remove('drop'); } });
+  tree.addEventListener('drop', e => { if (!dragId) return; e.preventDefault(); const id = dragId, t = dropTarget(e); endDrag(); moveItem(id, t); });
+  tree.addEventListener('dragend', endDrag);
+  $('#vtNewFolder').onclick = () => newFolderIn(meta.rootId);
   $('#vtTree').addEventListener('click', e => {
     const row = e.target.closest('.vt-row');
     if (!row) return;
@@ -658,8 +902,8 @@ export function init(c) {
     if (e.key === 'Enter') { const first = $('#vtTree .vt-res'); if (first) openNote(first.dataset.id); }
     if (e.key === 'Escape') { $('#vtSearch').value = ''; renderTree(); }
   });
-  $('#vtNew').onclick = newNote;
-  $('#vtWelcomeNew').onclick = newNote;
+  $('#vtNew').onclick = () => newNoteIn(curFolderId());
+  $('#vtWelcomeNew').onclick = () => newNoteIn(meta.rootId);
   $('#vtCollapse').onclick = () => { open.clear(); saveOpen(); renderTree(); };
   $('#vtBackToList').onclick = () => document.body.classList.remove('vt-note-open');
   $('#vtMode').onclick = toggleMode;

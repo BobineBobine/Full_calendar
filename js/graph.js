@@ -51,8 +51,15 @@ export async function readPath(path) {
   return (await req(`${rootPath(path)}/content`)).text();
 }
 
-export async function createFile(folder, name, text) {
-  const r = await req(`${rootPath(joinPath(folder, name))}/content?@microsoft.graph.conflictBehavior=rename`, {
+/** Métadonnées d'un fichier (id, eTag, lien de téléchargement), ou null s'il n'existe pas. */
+export async function getItem(path) {
+  try { return await (await req(rootPath(path))).json(); }
+  catch (e) { if (e.status === 404) return null; throw e; }
+}
+
+/** conflict : 'rename' (défaut), 'fail' (erreur 409 si le fichier existe) ou 'replace'. */
+export async function createFile(folder, name, text, conflict = 'rename') {
+  const r = await req(`${rootPath(joinPath(folder, name))}/content?@microsoft.graph.conflictBehavior=${conflict}`, {
     method: 'PUT', headers: { 'Content-Type': 'text/plain; charset=utf-8' }, body: text,
   });
   return r.json();

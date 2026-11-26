@@ -6,8 +6,10 @@ const K = 'fc.tokens';
 
 export class NeedLogin extends Error {}
 
+// Une seule adresse de retour pour toutes les applis du dépôt (Calendrier, Notes du jour) :
+// la racine du site. Une appli placée dans un sous-dossier y revient ensuite (returnTo).
 export function redirectUri() {
-  return location.origin + location.pathname.replace(/index\.html$/, '');
+  return new URL('../', import.meta.url).href;
 }
 
 function b64url(buf) {
@@ -24,10 +26,10 @@ function saveTok(t) {
 export function isLoggedIn() { const t = loadTok(); return !!(t && (t.refresh_token || t.access_token)); }
 export function logout() { saveTok(null); }
 
-export async function login(clientId, { silent = false } = {}) {
+export async function login(clientId, { silent = false, returnTo = null } = {}) {
   const verifier = rand(48), state = rand(16);
   const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
-  sessionStorage.setItem('fc.pkce', JSON.stringify({ verifier, state, silent }));
+  sessionStorage.setItem('fc.pkce', JSON.stringify({ verifier, state, silent, returnTo }));
   const p = new URLSearchParams({
     client_id: clientId, response_type: 'code', redirect_uri: redirectUri(), scope: SCOPES,
     code_challenge: challenge, code_challenge_method: 'S256', state, response_mode: 'query',
@@ -44,12 +46,24 @@ export async function handleRedirect(clientId) {
   try { saved = JSON.parse(sessionStorage.getItem('fc.pkce') || 'null'); } catch { /* ignore */ }
   sessionStorage.removeItem('fc.pkce');
   history.replaceState(null, '', redirectUri());
-  if (q.has('error')) return { error: q.get('error'), description: q.get('error_description'), silent: !!saved?.silent };
+  const back = saved?.returnTo;
+  // Connexion lancée depuis une autre appli du dépôt : on termine ici puis on y retourne.
+  const goBack = err => {
+    location.replace(back + (err ? '#auth-error=' + encodeURIComponent(err) : ''));
+    return new Promise(() => {});
+  };
+  if (q.has('error')) {
+    if (back) return goBack(q.get('error_description') || q.get('error'));
+    return { error: q.get('error'), description: q.get('error_description'), silent: !!saved?.silent };
+  }
   if (!saved || saved.state !== q.get('state')) return { error: 'state_mismatch' };
-  await tokenRequest(clientId, {
-    grant_type: 'authorization_code', code: q.get('code'),
-    redirect_uri: redirectUri(), code_verifier: saved.verifier,
-  });
+  try {
+    await tokenRequest(clientId, {
+      grant_type: 'authorization_code', code: q.get('code'),
+      redirect_uri: redirectUri(), code_verifier: saved.verifier,
+    });
+  } catch (e) { if (back) return goBack(e.message); throw e; }
+  if (back) return goBack();
   return { ok: true };
 }
 

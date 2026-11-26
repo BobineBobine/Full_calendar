@@ -8,7 +8,7 @@
 //   type: consigne
 //   statut: a-traiter | attente | fait | repondu | annulee
 //   cree: 2026-11-25T19:12:00+01:00
-//   source: calendrier
+//   source: calendrier | notes                  (appli d'où vient la consigne)
 //   lien: "[[Calendrier/2026-11-26 Dîner]]"   (facultatif)
 //   suite: "[[_IA/consignes/2026-11-25 19h12 …]]" (facultatif : réponse à une question)
 //   traite: 2026-11-25                          (ajouté par Claude)
@@ -51,8 +51,8 @@ export function fileNameFor(text, d = new Date()) {
 
 const q = s => '"' + String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
 
-export function buildConsigne(text, { lien, suite, date = new Date() } = {}) {
-  const fm = ['---', 'type: consigne', 'statut: a-traiter', `cree: ${isoLocal(date)}`, 'source: calendrier'];
+export function buildConsigne(text, { lien, suite, date = new Date(), source = 'calendrier' } = {}) {
+  const fm = ['---', 'type: consigne', 'statut: a-traiter', `cree: ${isoLocal(date)}`, `source: ${source}`];
   if (lien) fm.push(`lien: ${q(lien)}`);
   if (suite) fm.push(`suite: ${q(suite)}`);
   fm.push('---');
@@ -75,6 +75,7 @@ export function parseConsigne(text, fallbackDate = '') {
     label: STATUS[statut] || statut,
     cree,
     traite: d.traite ? String(d.traite) : '',
+    source: String(d.source || ''),
     lien: unlink(d.lien),
     suite: unlink(d.suite),
     ask,

@@ -1166,7 +1166,7 @@ function renderAssist({ scroll = false } = {}) {
           ${c.suite ? `<div class="as-ref">↪ Réponse à « ${esc(c.suite.split('/').pop())} »</div>` : ''}
           ${c.lien ? `<div class="as-ref">📎 ${esc(c.lien.split('/').pop())}</div>` : ''}
           <div class="as-text">${renderMarkdown(c.ask)}</div>
-          <div class="as-meta"><span class="as-badge">${esc(c.label)}</span><span>${esc(fmtWhen(c.cree))}</span>
+          <div class="as-meta"><span class="as-badge">${esc(c.label)}</span><span>${esc(fmtWhen(c.cree))}</span>${c.source && c.source !== 'calendrier' ? `<span>· via ${esc(c.source === 'notes' ? 'Notes du jour' : c.source)}</span>` : ''}
             ${c.statut === 'attente' ? '<button type="button" class="as-act" data-act="reply">Répondre</button>' : ''}
             ${c.statut === 'a-traiter' ? '<button type="button" class="as-act" data-act="cancel">Retirer</button>' : ''}
           </div>

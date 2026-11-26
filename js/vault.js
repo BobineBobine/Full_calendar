@@ -7,7 +7,7 @@ import * as auth from './auth.js';
 import * as graph from './graph.js';
 import { renderMarkdown, toggleTask } from './markdown.js';
 import { splitRaw } from './daily.js';
-import * as linkcomplete from './linkcomplete.js';
+import { createEditor } from './editor.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -23,6 +23,7 @@ const isNetErr = e => !navigator.onLine || (e instanceof TypeError && /fetch|net
 const SAVE_DELAY = 1200;
 
 let ctx = null; // fourni par app.js
+let ed = null; // éditeur avec mise en forme en direct (editor.js)
 const S = () => ctx.settings();
 const vaultPath = () => S().vaultPath || '';
 const vaultName = () => vaultPath().split('/').filter(Boolean).pop() || '';
@@ -97,7 +98,7 @@ function rebuild() {
 const visible = id => paths[id] != null && (byPath[paths[id].toLowerCase()] === id || meta.items[id]?.folder);
 
 /** Résout un lien [[cible]] comme Obsidian : chemin exact, sinon le nom le plus court qui correspond. */
-function resolve(target, fromId = null) {
+function resolve(target, fromId = null, fromDir = null) {
   let t = String(target || '').split('|')[0].split('#')[0].trim();
   if (!t) return fromId;
   t = t.replace(/^\/+/, '');
@@ -105,8 +106,8 @@ function resolve(target, fromId = null) {
   const exact = byPath[withMd.toLowerCase()];
   if (exact) return exact;
   // relatif au dossier de la note courante
-  if (fromId && paths[fromId]) {
-    const dir = paths[fromId].split('/').slice(0, -1).join('/');
+  if ((fromId && paths[fromId]) || fromDir != null) {
+    const dir = fromDir != null ? fromDir : paths[fromId].split('/').slice(0, -1).join('/');
     const rel = byPath[(dir ? dir + '/' : '') + withMd.toLowerCase()];
     if (rel) return rel;
   }
@@ -189,6 +190,7 @@ export async function sync({ quiet = true } = {}) {
     backlinkMemo = null;
     persist();
     if (active) { if (searchQ()) renderSearch(); if (cur.id) renderBacklinks(); }
+    ed?.refresh();
     if (!quiet) ctx.toast(todo.length ? `${todo.length} note(s) mise(s) à jour` : 'Coffre à jour');
   } catch (e) {
     if (isNetErr(e)) { if (!quiet) ctx.toast('Hors ligne : affichage du coffre en cache'); }
@@ -342,15 +344,12 @@ function reloadCurrent(text, eTag) {
 }
 
 function showText(text, { keepCursor = false } = {}) {
-  const ed = $('#vtEditor');
-  const pos = keepCursor ? [ed.selectionStart, ed.selectionEnd] : null;
-  if (ed.value !== text) ed.value = text;
-  if (pos) ed.setSelectionRange(Math.min(pos[0], text.length), Math.min(pos[1], text.length));
+  ed.setValue(text, { keepCursor });
   if (mode === 'read') renderPreview();
 }
 
 function renderPreview() {
-  const text = $('#vtEditor').value;
+  const text = ed.value;
   const { fm, body } = splitRaw(text);
   const off = fm ? fm.split('\n').length - 1 : 0;
   let props = '';
@@ -449,20 +448,21 @@ function renderBacklinks() {
 function setMode(m, { focus = true } = {}) {
   mode = m; LS.set('vt.mode', m);
   const read = m === 'read';
-  $('#vtEditor').hidden = read;
+  ed.hidden = read;
   $('#vtPreview').hidden = !read;
   const b = $('#vtMode');
   b.setAttribute('aria-pressed', String(!read));
   b.innerHTML = `<svg><use href="#${read ? 'i-edit' : 'i-eye'}"/></svg>${read ? 'Modifier' : 'Lecture'}`;
   if (read) renderPreview();
-  else if (focus) $('#vtEditor').focus();
+  else if (focus) ed.focus();
   ctx.onSelection();
 }
 export const toggleMode = () => { if (cur.id) setMode(mode === 'read' ? 'edit' : 'read'); };
 
 // ---------- Enregistrement ----------
 function onInput() {
-  const text = $('#vtEditor').value;
+  if (!cur.id) return;
+  const text = ed.value;
   if (text === cur.base) { delete drafts[cur.id]; saveDrafts(); setSaveState('', 'Enregistré'); return; }
   drafts[cur.id] = { text, baseETag: drafts[cur.id]?.baseETag ?? cur.eTag };
   saveDrafts();
@@ -760,6 +760,70 @@ function hideMenu() {
   for (const row of document.querySelectorAll('#vtTree .vt-row.ctx')) row.classList.remove('ctx');
 }
 
+// ---------- Images ----------
+/** Adresse affichable d'une image du coffre (![[photo.png]]), vue depuis la note `fromRel`. */
+export async function imageURL(target, fromRel = '') {
+  await load();
+  const dir = fromRel ? fromRel.split('/').slice(0, -1).join('/') : '';
+  const id = resolve(target, null, dir);
+  if (!id) return null;
+  if (!blobs.has(id)) blobs.set(id, URL.createObjectURL(await graph.readBlob(id)));
+  return blobs.get(id);
+}
+
+/** Dossier des pièces jointes, réglé dans Obsidian (Fichiers et liens → Emplacement des nouvelles pièces jointes). */
+async function attachmentFolder(noteRel) {
+  const k = 'vt.appcfg:' + vaultPath();
+  let c = LS.get(k, null);
+  if (!c || Date.now() - c.at > 864e5) {
+    let cfg = {};
+    try { cfg = JSON.parse(await graph.readPath(graph.joinPath(vaultPath(), '.obsidian/app.json'))); } catch { /* absent : réglage par défaut */ }
+    c = { at: Date.now(), folder: cfg.attachmentFolderPath ?? '/' };
+    LS.set(k, c);
+  }
+  const noteDir = (noteRel || '').split('/').slice(0, -1).join('/');
+  const f = String(c.folder || '/');
+  if (f === '/' || f === '') return '';
+  if (f === './' || f === '.') return noteDir;
+  if (f.startsWith('./')) return graph.joinPath(noteDir, f.slice(2));
+  return f.replace(/^\/+|\/+$/g, '');
+}
+
+const stamp = (d = new Date()) => [d.getFullYear(), d.getMonth() + 1, d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds()].map(n => String(n).padStart(2, '0')).join('');
+
+/**
+ * Envoie des fichiers (images collées, glissées ou choisies) dans le dossier des pièces jointes
+ * et renvoie les liens à insérer : ![[Pasted image 20261126104512.png]] comme Obsidian.
+ */
+export async function attachFiles(files, noteRel = '') {
+  if (!auth.isLoggedIn()) { ctx.toast('Connecte-toi à OneDrive pour ajouter une image.', { error: true }); return null; }
+  await load();
+  const links = [];
+  let unknownFolder = false;
+  try {
+    const folder = await attachmentFolder(noteRel);
+    for (const [i, f] of files.entries()) {
+      ctx.toast(`Envoi de l'image${files.length > 1 ? ` ${i + 1}/${files.length}` : ''}…`, { ms: 60000 });
+      const ext = (f.name.match(/\.[a-z0-9]+$/i)?.[0] || '.' + ((f.type.split('/')[1] || 'png').replace('jpeg', 'jpg'))).toLowerCase();
+      const pasted = !f.name || /^image\.\w+$/i.test(f.name);
+      const name = pasted ? `Pasted image ${stamp()}${files.length > 1 ? '-' + (i + 1) : ''}${ext}` : f.name.replace(/[\\/:*?"<>|#^[\]]/g, ' ');
+      const item = await graph.uploadFile(graph.joinPath(vaultPath(), folder), name, f);
+      // Dossier parent : connu s'il existe déjà dans l'index, sinon la prochaine synchro le trouvera
+      const parent = folder ? Object.keys(meta.items).find(k => meta.items[k].folder && paths[k] === folder) : meta.rootId;
+      if (parent) { meta.items[item.id] = { id: item.id, name: item.name, parent, folder: false, eTag: item.eTag, mtime: item.lastModifiedDateTime, size: item.size }; rebuild(); persist(); } else unknownFolder = true;
+      blobs.set(item.id, URL.createObjectURL(f));
+      const unique = (byBase[item.name.toLowerCase()] || []).length <= 1;
+      links.push(`![[${unique || !folder ? item.name : graph.joinPath(folder, item.name)}]]`);
+    }
+    ctx.toast(files.length > 1 ? `${files.length} images ajoutées` : 'Image ajoutée');
+    if (unknownFolder) sync(); // dossier des pièces jointes créé à l'instant par OneDrive
+    return links.join('\n');
+  } catch (e) {
+    ctx.handleError(e);
+    return links.length ? links.join('\n') : null;
+  }
+}
+
 // ---------- Liens [[…]] depuis les autres onglets ----------
 /** Notes proposées en tapant [[… (le nom le plus proche d'abord, puis les plus récentes). */
 export function suggest(q) {
@@ -784,6 +848,8 @@ export function suggest(q) {
     return { label: label(id), insert: linkText(id), hint: dir };
   });
 }
+/** Le lien [[cible]] mène-t-il à une note existante ? (pour l'afficher pâle sinon) */
+export const linkExists = t => !Object.keys(meta.items).length || !!resolve(t);
 /** Prépare l'index du coffre (pour la complétion dans l'onglet Notes). */
 export async function ensureIndex() {
   if (!configured()) return;
@@ -806,9 +872,7 @@ export function selection() {
     const s = getSelection();
     return s && $('#vtPreview').contains(s.anchorNode) ? String(s).trim() : '';
   }
-  const ed = $('#vtEditor');
-  if (document.activeElement !== ed) return '';
-  return ed.value.slice(ed.selectionStart, ed.selectionEnd).trim();
+  return ed.hasFocus ? ed.selectionText().trim() : '';
 }
 export const nav = {
   back: () => { if (histPos > 0) openNote(hist[--histPos], { push: false }); },
@@ -849,7 +913,24 @@ export function reset() {
 
 export function init(c) {
   ctx = c;
-  linkcomplete.attach($('#vtEditor'), suggest);
+  ed = createEditor($('#vtEditor'), {
+    onChange: () => onInput(),
+    suggest,
+    linkExists: t => !!resolve(t, cur.id),
+    onLink: t => followLink(t),
+    loadImage: t => imageURL(t, cur.id ? paths[cur.id] : ''),
+    onFiles: files => attachFiles(files, cur.id ? paths[cur.id] : ''),
+  });
+  ed.view.contentDOM.addEventListener('blur', () => { if (dirty()) scheduleSave(0); });
+  $('#vtImage').onclick = () => $('#vtFile').click();
+  $('#vtFile').onchange = async e => {
+    const files = [...e.target.files];
+    e.target.value = '';
+    if (!files.length || !cur.id) return;
+    if (mode === 'read') setMode('edit', { focus: false });
+    const md = await attachFiles(files, paths[cur.id]);
+    if (md) ed.insert(md);
+  };
   // Menu clic droit (et appui long sur téléphone)
   $('#vtTree').addEventListener('contextmenu', e => {
     e.preventDefault();
@@ -910,26 +991,10 @@ export function init(c) {
   $('#vtDelete').onclick = removeNote;
   $('#vtSetupBtn').onclick = () => ctx.openSettings();
   $('#vtTitle').addEventListener('keydown', e => {
-    if (e.key === 'Enter') { e.preventDefault(); $('#vtTitle').blur(); if (mode === 'edit') $('#vtEditor').focus(); }
+    if (e.key === 'Enter') { e.preventDefault(); $('#vtTitle').blur(); if (mode === 'edit') ed.focus(); }
     if (e.key === 'Escape') { $('#vtTitle').value = base(meta.items[cur.id]?.name || ''); $('#vtTitle').blur(); }
   });
   $('#vtTitle').addEventListener('change', rename);
-  const ed = $('#vtEditor');
-  ed.addEventListener('input', onInput);
-  ed.addEventListener('blur', () => { if (dirty()) scheduleSave(0); });
-  ed.addEventListener('keydown', e => {
-    if (e.key === 'Tab') { e.preventDefault(); document.execCommand('insertText', false, '\t'); }
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
-      const start = ed.value.lastIndexOf('\n', ed.selectionStart - 1) + 1;
-      const line = ed.value.slice(start, ed.selectionStart);
-      const m = line.match(/^(\s*)([-*+] \[[ xX]\] |[-*+] |(\d+)[.)] |> )/);
-      if (!m || ed.selectionStart !== ed.selectionEnd) return;
-      e.preventDefault();
-      if (line.trim() === m[2].trim()) { ed.setSelectionRange(start, ed.selectionStart); document.execCommand('delete'); return; }
-      const next = m[3] ? m[2].replace(/\d+/, n => +n + 1) : m[2].replace(/\[[xX]\]/, '[ ]');
-      document.execCommand('insertText', false, '\n' + m[1] + next);
-    }
-  });
   const onLink = e => {
     const a = e.target.closest('a.wikilink');
     if (!a) return;
@@ -945,7 +1010,7 @@ export function init(c) {
   $('#vtPreview').addEventListener('change', e => {
     const cb = e.target.closest('input[type=checkbox][data-line]');
     if (!cb) return;
-    showText(toggleTask($('#vtEditor').value, +cb.dataset.line));
+    showText(toggleTask(ed.value, +cb.dataset.line));
     onInput();
   });
   // Raccourcis clavier façon Obsidian

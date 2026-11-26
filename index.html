@@ -10,10 +10,10 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="style.css?v=14">
+  <link rel="stylesheet" href="style.css?v=15">
   <script src="vendor/fullcalendar.min.js"></script>
   <script src="vendor/fc-fr.min.js"></script>
-  <script type="module" src="js/app.js?v=13"></script>
+  <script type="module" src="js/app.js?v=14"></script>
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -40,6 +40,7 @@
       <symbol id="i-clip" viewBox="0 0 24 24"><path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/></symbol>
       <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
       <symbol id="i-collapse" viewBox="0 0 24 24"><path d="m7 20 5-5 5 5M7 4l5 5 5-5"/></symbol>
+      <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></symbol>
       <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
     </defs>
   </svg>
@@ -62,9 +63,11 @@
   <main id="cal"></main>
   <main id="agenda" hidden></main>
   <main id="notesView" hidden>
-    <div class="nt-sub"><a id="ntPath" title="Ouvrir dans Obsidian"></a><span id="ntState"></span></div>
+    <div class="nt-sub"><a id="ntPath" title="Ouvrir dans Obsidian"></a><span id="ntState"></span>
+      <button type="button" id="ntImage" class="ib" title="Ajouter une image" aria-label="Ajouter une image"><svg><use href="#i-image"/></svg></button>
+      <input type="file" id="ntFile" accept="image/*" multiple hidden></div>
     <div id="ntMain">
-      <textarea id="editor" spellcheck="true" autocapitalize="sentences" placeholder="Écris ici…"></textarea>
+      <div id="editor" class="cm-host"></div>
       <div id="preview" class="md" hidden></div>
     </div>
     <div id="ntSetup" class="nt-setup" hidden>
@@ -98,13 +101,15 @@
           <button type="button" id="vtBackToList" class="ib vt-back" aria-label="Liste des notes"><svg><use href="#i-left"/></svg></button>
           <span id="vtCrumbs"></span>
           <span id="vtState"></span>
+          <button type="button" id="vtImage" class="ib" title="Ajouter une image" aria-label="Ajouter une image"><svg><use href="#i-image"/></svg></button>
+          <input type="file" id="vtFile" accept="image/*" multiple hidden>
           <button type="button" id="vtMode"></button>
           <a id="vtObsidian" class="ib" title="Ouvrir dans Obsidian" aria-label="Ouvrir dans Obsidian"><svg><use href="#i-ext"/></svg></a>
           <button type="button" id="vtDelete" class="ib" title="Supprimer" aria-label="Supprimer"><svg><use href="#i-trash"/></svg></button>
         </div>
         <div class="vt-doc">
           <input id="vtTitle" class="vt-title" autocomplete="off" spellcheck="false" aria-label="Nom de la note">
-          <textarea id="vtEditor" spellcheck="true" placeholder="Écris ici…"></textarea>
+          <div id="vtEditor" class="cm-host"></div>
           <div id="vtPreview" class="md vt-md"></div>
           <div id="vtBacklinks"></div>
         </div>

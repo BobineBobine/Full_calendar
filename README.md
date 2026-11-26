@@ -67,6 +67,12 @@ Un « Obsidian en ligne » branché sur OneDrive, pensé pour l'ordinateur (s'ad
   notes intégrées `![[note]]`) et **modification** (Ctrl+E), enregistrement automatique avec contrôle des conflits.
 - **Liens `[[…]]` cliquables** : ouvrent la note, ou la créent si elle n'existe pas (comme Obsidian). Liens absents en plus pâle.
 - **Rétroliens** sous chaque note, **recherche** dans les noms et le contenu de tout le coffre (sans accents).
+- **Mise en forme en direct** pendant la frappe, comme l'aperçu en direct d'Obsidian (aussi dans l'onglet Notes) :
+  titres, gras, italique, ==surligné==, `code`, citations, puces, **cases cochables**, liens, #tags, images.
+  Le Markdown ne réapparaît que sur la ligne du curseur. Ctrl+B / Ctrl+I / Ctrl+Maj+H : gras, italique, surligné.
+- **Images** : coller (Ctrl+V) ou glisser une image dans la note, ou bouton image (photo du téléphone).
+  Elle est envoyée dans le dossier des pièces jointes réglé dans Obsidian (`.obsidian/app.json`)
+  sous le nom `Pasted image AAAAMMJJHHmmss.png`, et `![[…]]` est inséré. Grosses photos : envoi par morceaux.
 - **Clic droit** (appui long sur téléphone) sur une note, un dossier ou le vide : nouvelle note ou nouveau dossier
   à cet endroit, renommer, déplacer vers…, copier le lien `[[…]]`, ouvrir dans Obsidian, supprimer.
   **Glisser-déposer** une note ou un dossier pour le déplacer (à la souris).
@@ -77,7 +83,7 @@ Un « Obsidian en ligne » branché sur OneDrive, pensé pour l'ordinateur (s'ad
 - ‹ › en haut : note précédente / suivante (aussi Alt+← / Alt+→). Ctrl+O : chercher.
 - La première ouverture lit tout le coffre ; ensuite seules les notes modifiées sont retéléchargées
   (API « delta » de OneDrive). Le texte est gardé dans le navigateur (IndexedDB) : recherche instantanée, lecture hors ligne.
-- Pas (encore) de vue graphe, de plugins ni d'aperçu en direct pendant la frappe. Renommer ou déplacer un dossier
+- Pas (encore) de vue graphe ni de plugins. Renommer ou déplacer un dossier
   ne réécrit pas les liens écrits avec le chemin complet (`[[Dossier/Note]]`).
 
 ## Mise en place (une seule fois)
@@ -140,6 +146,9 @@ Tests : `node tests/md.test.mjs && node tests/extra.test.mjs && node tests/daily
 - `js/markdown.js` : rendu des notes et cases à cocher.
 - `js/assist.js` : format des notes de consigne pour l'assistant IA.
 - `js/vault.js` : onglet Coffre (arborescence, menu clic droit, lecture/édition, liens, rétroliens, recherche).
-- `js/linkcomplete.js` : complétion des liens `[[…]]` dans les zones de texte.
+- `js/editor.js` : éditeur Markdown avec mise en forme en direct et complétion `[[`, basé sur CodeMirror 6
+  (`vendor/codemirror.min.js`, licence MIT). Pour le reconstruire : dans un dossier temporaire,
+  `npm i @codemirror/state @codemirror/view @codemirror/commands @codemirror/language @codemirror/lang-markdown @codemirror/autocomplete @lezer/markdown @lezer/highlight esbuild`,
+  puis `npx esbuild <chemin>/tools/codemirror-entry.js --bundle --format=esm --minify --legal-comments=none --outfile=<chemin>/vendor/codemirror.min.js`.
 - `js/notes.js` / `js/daily.js` : onglet Notes (note quotidienne) et format des notes quotidiennes d'Obsidian.
 - `js/app.js` : interface (FullCalendar 6, fourni dans `vendor/`, licence MIT).

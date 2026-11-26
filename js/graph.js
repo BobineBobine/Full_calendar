@@ -142,3 +142,26 @@ export async function createFolder(parentPath, name) {
     body: JSON.stringify({ name, folder: {}, '@microsoft.graph.conflictBehavior': 'rename' }),
   })).json();
 }
+
+/** Envoie un fichier binaire (image…). Au-delà de 4 Mo, envoi par morceaux (session d'envoi). Nom changé si déjà pris. */
+export async function uploadFile(folder, name, blob) {
+  const target = rootPath(joinPath(folder, name));
+  if (blob.size <= 4e6) {
+    return (await req(`${target}/content?@microsoft.graph.conflictBehavior=rename`, {
+      method: 'PUT', headers: { 'Content-Type': blob.type || 'application/octet-stream' }, body: blob,
+    })).json();
+  }
+  const s = await (await req(`${target}/createUploadSession`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ item: { '@microsoft.graph.conflictBehavior': 'rename' } }),
+  })).json();
+  const CHUNK = 320 * 1024 * 16; // multiple de 320 Kio, comme l'exige OneDrive
+  let out = null;
+  for (let i = 0; i < blob.size; i += CHUNK) {
+    const part = blob.slice(i, i + CHUNK);
+    const r = await fetch(s.uploadUrl, { method: 'PUT', headers: { 'Content-Range': `bytes ${i}-${i + part.size - 1}/${blob.size}` }, body: part });
+    if (!r.ok) throw new GraphError(r.status, `Envoi interrompu (${r.status})`);
+    if (r.status === 200 || r.status === 201) out = await r.json();
+  }
+  return out;
+}

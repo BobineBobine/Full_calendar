@@ -5,7 +5,7 @@ import * as auth from './auth.js';
 import * as graph from './graph.js';
 import * as daily from './daily.js';
 import { renderMarkdown, toggleTask } from './markdown.js';
-import * as linkcomplete from './linkcomplete.js';
+import { createEditor } from './editor.js';
 
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
@@ -43,6 +43,7 @@ const cur = {
   loaded: false,
 };
 let active = false, ready = null;
+let ed = null; // éditeur avec mise en forme en direct (editor.js)
 let saveTimer = null, saving = null;
 let mode = LS.get('nq.mode', null) ?? LS.get('nq.settings', {}).mode ?? 'edit';
 
@@ -91,15 +92,12 @@ async function initialText(dateStr) {
 }
 
 /** Texte complet tel qu'il doit être enregistré. */
-const fullText = () => cur.fm + $('#editor').value;
+const fullText = () => cur.fm + ed.value;
 
 function showText(text, { keepCursor = false } = {}) {
   const { fm, body } = daily.splitRaw(text);
   cur.fm = fm;
-  const ed = $('#editor');
-  const pos = keepCursor ? [ed.selectionStart, ed.selectionEnd] : null;
-  if (ed.value !== body) ed.value = body;
-  if (pos) ed.setSelectionRange(Math.min(pos[0], body.length), Math.min(pos[1], body.length));
+  ed.setValue(body, { keepCursor });
   if (mode === 'read') renderPreview();
 }
 
@@ -299,14 +297,19 @@ function askConflict() {
 
 // ---------- Lecture / écriture ----------
 function renderPreview() {
-  const body = $('#editor').value;
+  const body = ed.value;
   const off = cur.fm ? cur.fm.split('\n').length - 1 : 0;
-  $('#preview').innerHTML = body.trim() ? renderMarkdown(body, off) : '<p class="hint">Note vide.</p>';
+  $('#preview').innerHTML = body.trim() ? renderMarkdown(body, off, { embeds: true }) : '<p class="hint">Note vide.</p>';
+  for (const el of $('#preview').querySelectorAll('.embed')) {
+    const t = el.dataset.embed, w = parseInt(el.dataset.w, 10);
+    el.innerHTML = `<img alt=""${w ? ` style="width:${w}px"` : ''}>`;
+    Promise.resolve(ctx.loadImage(t, cur.rel)).then(u => { if (u) el.querySelector('img').src = u; else el.textContent = `⚠ ${t}`; }).catch(() => { el.textContent = `⚠ ${t}`; });
+  }
 }
 function setMode(m, { focus = true } = {}) {
   mode = m; LS.set('nq.mode', m);
   const read = m === 'read';
-  $('#editor').hidden = read;
+  ed.hidden = read;
   $('#preview').hidden = !read;
   const b = $('#btnMode');
   b.setAttribute('aria-pressed', String(read));
@@ -319,10 +322,7 @@ export const toggleMode = () => setMode(mode === 'read' ? 'edit' : 'read');
 
 /** Curseur à la fin de la note, prêt à écrire. */
 function focusEnd() {
-  const ed = $('#editor');
-  ed.focus({ preventScroll: true });
-  ed.setSelectionRange(ed.value.length, ed.value.length);
-  ed.scrollTop = ed.scrollHeight;
+  ed.focusEnd();
 }
 
 /** Texte sélectionné dans la note (pour « Envoyer à l'IA »). */
@@ -332,9 +332,7 @@ export function selection() {
     const s = getSelection();
     return s && $('#preview').contains(s.anchorNode) ? String(s).trim() : '';
   }
-  const ed = $('#editor');
-  if (document.activeElement !== ed) return '';
-  return ed.value.slice(ed.selectionStart, ed.selectionEnd).trim();
+  return ed.hasFocus ? ed.selectionText().trim() : '';
 }
 
 /** Note affichée : chemin relatif au coffre (sans .md), pour un lien [[…]]. */
@@ -397,7 +395,7 @@ export async function show() {
   $('.nt-sub').hidden = !configured();
   if (!configured()) { ctx.setTitle('Notes'); return; }
   renderHeader();
-  ctx.ensureIndex();
+  Promise.resolve(ctx.ensureIndex()).then(() => ed.refresh()); // liens existants / absents
   await ensureReady();
   if (!active) return;
   const want = cur.follow ? todayStr() : cur.date;
@@ -413,7 +411,7 @@ export function hide() {
   active = false;
   document.body.classList.remove('view-notes');
   $('#notesView').hidden = true;
-  $('#editor').blur();
+  ed.view.contentDOM.blur();
   if (drafts[cur.full]) saveNow();
   ctx.onSelection();
 }
@@ -428,29 +426,24 @@ export async function reload() {
 
 export function init(c) {
   ctx = c;
-  const ed = $('#editor');
-  ed.addEventListener('input', onInput);
-  ed.addEventListener('blur', () => { if (drafts[cur.full]) scheduleSave(0); });
-  // Tabulation et retour à la ligne dans les listes, comme dans Obsidian
-  ed.addEventListener('keydown', e => {
-    if (e.key === 'Tab') { e.preventDefault(); document.execCommand('insertText', false, '\t'); }
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
-      const start = ed.value.lastIndexOf('\n', ed.selectionStart - 1) + 1;
-      const line = ed.value.slice(start, ed.selectionStart);
-      const m = line.match(/^(\s*)([-*+] \[[ xX]\] |[-*+] |(\d+)[.)] )/);
-      if (!m || ed.selectionStart !== ed.selectionEnd) return;
-      e.preventDefault();
-      if (line.trim() === m[2].trim()) { // puce vide : on sort de la liste
-        ed.setSelectionRange(start, ed.selectionStart);
-        document.execCommand('delete');
-        return;
-      }
-      const next = m[3] ? m[2].replace(/\d+/, n => +n + 1) : m[2].replace(/\[[xX]\]/, '[ ]');
-      document.execCommand('insertText', false, '\n' + m[1] + next);
-    }
+  ed = createEditor($('#editor'), {
+    onChange: () => onInput(),
+    suggest: q => ctx.suggest(q),
+    linkExists: t => ctx.linkExists(t),
+    onLink: t => ctx.openLink(t),
+    loadImage: t => ctx.loadImage(t, cur.rel),
+    onFiles: files => ctx.attachFiles(files, cur.rel + '.md'),
   });
-  // Liens [[…]] : complétion en tapant « [[ » (notes du coffre) et ouverture dans l'onglet Coffre
-  linkcomplete.attach(ed, q => ctx.suggest(q));
+  ed.view.contentDOM.addEventListener('blur', () => { if (drafts[cur.full]) scheduleSave(0); });
+  $('#ntImage').onclick = () => $('#ntFile').click();
+  $('#ntFile').onchange = async e => {
+    const files = [...e.target.files];
+    e.target.value = '';
+    if (!files.length || !configured()) return;
+    if (mode === 'read') setMode('edit', { focus: false });
+    const md = await ctx.attachFiles(files, cur.rel + '.md');
+    if (md) { ed.focusEnd(); ed.insert(md); }
+  };
   $('#preview').addEventListener('click', e => {
     const a = e.target.closest('a.wikilink');
     if (!a) return;

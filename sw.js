@@ -2,12 +2,12 @@
 // Stratégie « réseau d'abord » : en ligne, on prend toujours la dernière version
 // (pas de mélange ancien/nouveau fichiers) ; hors ligne, on sert la copie en cache.
 // Les appels OneDrive / Microsoft ne passent jamais par ce cache.
-const VERSION = 'v13';
+const VERSION = 'v14';
 const SHELL = [
   './', 'index.html', 'style.css', 'manifest.webmanifest',
   'js/app.js', 'js/auth.js', 'js/graph.js', 'js/md.js', 'js/markdown.js', 'js/nlp.js', 'js/themes.js', 'js/assist.js',
-  'js/notes.js', 'js/daily.js', 'js/vault.js', 'js/linkcomplete.js',
-  'vendor/fullcalendar.min.js', 'vendor/fc-fr.min.js',
+  'js/notes.js', 'js/daily.js', 'js/vault.js', 'js/editor.js',
+  'vendor/fullcalendar.min.js', 'vendor/fc-fr.min.js', 'vendor/codemirror.min.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
   // Ancienne adresse des Notes (redirige vers l'onglet) et icône du raccourci
   'notes/', 'icons/notes.svg', 'icons/notes-192.png', 'icons/notes-512.png',

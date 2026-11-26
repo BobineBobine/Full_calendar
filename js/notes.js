@@ -5,6 +5,7 @@ import * as auth from './auth.js';
 import * as graph from './graph.js';
 import * as daily from './daily.js';
 import { renderMarkdown, toggleTask } from './markdown.js';
+import * as linkcomplete from './linkcomplete.js';
 
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
@@ -396,6 +397,7 @@ export async function show() {
   $('.nt-sub').hidden = !configured();
   if (!configured()) { ctx.setTitle('Notes'); return; }
   renderHeader();
+  ctx.ensureIndex();
   await ensureReady();
   if (!active) return;
   const want = cur.follow ? todayStr() : cur.date;
@@ -446,6 +448,14 @@ export function init(c) {
       const next = m[3] ? m[2].replace(/\d+/, n => +n + 1) : m[2].replace(/\[[xX]\]/, '[ ]');
       document.execCommand('insertText', false, '\n' + m[1] + next);
     }
+  });
+  // Liens [[…]] : complétion en tapant « [[ » (notes du coffre) et ouverture dans l'onglet Coffre
+  linkcomplete.attach(ed, q => ctx.suggest(q));
+  $('#preview').addEventListener('click', e => {
+    const a = e.target.closest('a.wikilink');
+    if (!a) return;
+    e.preventDefault();
+    ctx.openLink(a.dataset.link);
   });
   $('#preview').addEventListener('change', e => {
     const cb = e.target.closest('input[type=checkbox][data-line]');

@@ -32,6 +32,30 @@ directement les notes d'événements du plugin Obsidian **Full Calendar**
 - Thème clair ou sombre automatique. Le bouton retour d'Android ferme les fenêtres.
 - Aucun serveur. L'appli parle directement à OneDrive depuis ton navigateur.
 
+## Notes du jour (`/notes/`)
+
+Deuxième appli du même dépôt, installable à part sur l'écran d'accueil (icône verte « Notes ») :
+`https://bobinebobine.github.io/Full_calendar/notes/`.
+
+- Ouvre **la note quotidienne d'Obsidian** (aujourd'hui par défaut), curseur à la fin, prête à écrire.
+  Dossier, format du nom et modèle sont **repris des réglages d'Obsidian** (*Notes quotidiennes* ou *Periodic Notes*),
+  dates en français (`YYYY-MM-DD dddd` → `2026-11-26 jeudi`).
+- Si la note n'existe pas, elle est préparée à partir du modèle (`{{date}}`, `{{date:FORMAT}}`, `{{time}}`, `{{title}}`,
+  `{{yesterday}}`, `{{tomorrow}}`, `{{date+1d}}`…) et **créée seulement quand tu écris**.
+  Les modèles Templater (`<% … %>`) ne sont pas exécutés.
+- **Enregistrement automatique** (1 s après la frappe). Le frontmatter est conservé tel quel et masqué.
+  Les listes et cases à cocher se prolongent avec Entrée.
+- **Hors ligne** : le texte reste sur le téléphone et part au retour du réseau.
+- **Modifiée ailleurs en même temps** (Obsidian sur le PC) : si chacun a seulement ajouté à la fin, les deux ajouts sont
+  gardés ; sinon l'appli demande laquelle garder (l'autre reste dans l'historique des versions de OneDrive).
+  Si la note du jour a été créée ailleurs entre-temps, ton texte est ajouté à la fin.
+- Jour précédent / suivant, choix d'une date en touchant le titre, mode **Lecture** (cases cochables).
+- **Assistant IA** : les mêmes consignes que le Calendrier (`_IA/consignes/`, `source: notes`).
+  Bouton trombone pour joindre la note du jour ; sélectionne un passage puis **« Envoyer à l'IA »**
+  pour l'envoyer cité dans la consigne, avec la note en lien.
+- Connexion, coffre et style sont **partagés avec le Calendrier** (même site) : rien à reconfigurer.
+  Une seule adresse de retour de connexion pour les deux applis (la racine du site), rien à ajouter côté Microsoft.
+
 ## Mise en place (une seule fois)
 
 ### 1. Héberger l'appli (GitHub Pages)

@@ -2,13 +2,19 @@
 // Stratégie « réseau d'abord » : en ligne, on prend toujours la dernière version
 // (pas de mélange ancien/nouveau fichiers) ; hors ligne, on sert la copie en cache.
 // Les appels OneDrive / Microsoft ne passent jamais par ce cache.
-const VERSION = 'v7';
+// Sert aussi l'appli « Notes du jour » (dossier notes/), qui l'enregistre avec la même portée.
+const VERSION = 'v8';
 const SHELL = [
   './', 'index.html', 'style.css', 'manifest.webmanifest',
   'js/app.js', 'js/auth.js', 'js/graph.js', 'js/md.js', 'js/markdown.js', 'js/nlp.js', 'js/themes.js', 'js/assist.js',
   'vendor/fullcalendar.min.js', 'vendor/fc-fr.min.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
+  // Appli « Notes du jour »
+  'notes/', 'notes/notes.css', 'notes/manifest.webmanifest', 'js/notes.js', 'js/daily.js',
+  'icons/notes.svg', 'icons/notes-192.png', 'icons/notes-512.png',
 ];
+// Une page = une entrée de cache, sans les paramètres (?code=… au retour de connexion).
+const pageKey = u => { const x = new URL(u); return x.origin + x.pathname.replace(/index\.html$/, ''); };
 
 self.addEventListener('install', e => {
   e.waitUntil(
@@ -34,10 +40,10 @@ self.addEventListener('fetch', e => {
     const cache = await caches.open(VERSION);
     try {
       const res = await fetch(e.request, { cache: 'no-cache' });
-      if (res.ok) cache.put(isNav ? './' : e.request, res.clone());
+      if (res.ok) cache.put(isNav ? pageKey(e.request.url) : e.request, res.clone());
       return res;
     } catch {
-      return (await cache.match(isNav ? './' : e.request, { ignoreSearch: isNav })) || Response.error();
+      return (await cache.match(isNav ? pageKey(e.request.url) : e.request, { ignoreSearch: isNav })) || Response.error();
     }
   })());
 });

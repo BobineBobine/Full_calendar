@@ -24,7 +24,13 @@ assert.match(html, /data-line="9" checked/);
 assert.match(html, /data-line="10">/);
 assert.match(html, /Ivan &lt;b&gt;/);
 assert.match(html, /<strong>gras<\/strong>/);
-assert.match(html, /<span class="wikilink">alias<\/span>/);
+assert.match(html, /<a class="wikilink" data-link="Lien">alias<\/a>/);
+// Coffre : images intégrées, blocs de code, tableaux
+const h2 = renderMarkdown('![[photo.png|200]]\n```js\nlet a = 1 < 2;\n```\n| A | B |\n|---|---|\n| 1 | [[N]] |', 0, { embeds: true });
+assert.match(h2, /<span class="embed" data-embed="photo.png" data-w="200"><\/span>/);
+assert.match(h2, /<pre><code>let a = 1 &lt; 2;<\/code><\/pre>/);
+assert.match(h2, /<th>A<\/th><th>B<\/th>.*<td>1<\/td><td><a class="wikilink" data-link="N">N<\/a><\/td>/);
+assert.equal(renderMarkdown('![[photo.png]] x'), '<p> x</p>');
 assert.match(html, /<a href="https:\/\/ex.com"/);
 assert.equal(toggleTask('a\n- [ ] x\n  - [x] y', 1), 'a\n- [x] x\n  - [x] y');
 assert.equal(toggleTask('a\n- [ ] x\n  - [x] y', 2), 'a\n- [ ] x\n  - [ ] y');

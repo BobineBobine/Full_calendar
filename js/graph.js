@@ -113,3 +113,23 @@ export async function listVersions(id) {
 export async function readVersion(id, versionId) {
   return (await req(`/me/drive/items/${id}/versions/${encodeURIComponent(versionId)}/content`)).text();
 }
+
+/**
+ * Tous les fichiers et dossiers sous `path`, ou seulement ce qui a changé depuis `link` (deltaLink précédent).
+ * Renvoie { items, deltaLink }. Erreur 410 : le lien a expiré, il faut repartir de zéro.
+ */
+export async function delta(path, link = null) {
+  let url = link || `${rootPath(path)}/delta`;
+  const items = [];
+  for (;;) {
+    const j = await (await req(url)).json();
+    items.push(...(j.value || []));
+    if (j['@odata.nextLink']) { url = j['@odata.nextLink']; continue; }
+    return { items, deltaLink: j['@odata.deltaLink'] || null };
+  }
+}
+
+/** Contenu binaire d'un fichier (image intégrée…). */
+export async function readBlob(id) {
+  return (await req(`/me/drive/items/${id}/content`)).blob();
+}

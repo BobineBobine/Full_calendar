@@ -10,10 +10,10 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="style.css?v=10">
+  <link rel="stylesheet" href="style.css?v=11">
   <script src="vendor/fullcalendar.min.js"></script>
   <script src="vendor/fc-fr.min.js"></script>
-  <script type="module" src="js/app.js?v=10"></script>
+  <script type="module" src="js/app.js?v=11"></script>
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -36,6 +36,8 @@
       <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></symbol>
       <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></symbol>
       <symbol id="i-send" viewBox="0 0 24 24"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></symbol>
+      <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+      <symbol id="i-clip" viewBox="0 0 24 24"><path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/></symbol>
       <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
     </defs>
   </svg>
@@ -44,10 +46,12 @@
     <button id="hdrPrev" class="ib sm" aria-label="Période précédente"><svg><use href="#i-left"/></svg></button>
     <button id="hdrTitle" class="title-btn" aria-label="Revenir à aujourd'hui"><span id="hdrTitleText">Calendrier</span></button>
     <button id="hdrNext" class="ib sm" aria-label="Période suivante"><svg><use href="#i-right"/></svg></button>
+    <input type="date" id="ntDatePick" class="nt-pick" tabindex="-1" aria-label="Choisir un jour">
     <span class="spacer"></span>
     <button id="btnToday" class="ib today-btn" aria-label="Aujourd'hui"><span id="todayNum"></span></button>
+    <button id="btnMode" class="ib notes-only" aria-label="Lecture"><svg><use href="#i-eye"/></svg></button>
     <button id="btnAssist" class="ib" aria-label="Assistant IA"><svg><use href="#i-spark"/></svg><span id="asDot" class="dot" hidden></span></button>
-    <button id="btnSearch" class="ib" aria-label="Rechercher"><svg><use href="#i-search"/></svg></button>
+    <button id="btnSearch" class="ib cal-only" aria-label="Rechercher"><svg><use href="#i-search"/></svg></button>
     <button id="btnSync" class="ib" aria-label="Synchroniser"><svg><use href="#i-sync"/></svg></button>
     <button id="btnMenu" class="ib" aria-label="Calendriers et réglages"><svg><use href="#i-menu"/></svg><span id="menuDot" class="dot" hidden></span></button>
   </header>
@@ -55,6 +59,17 @@
 
   <main id="cal"></main>
   <main id="agenda" hidden></main>
+  <main id="notesView" hidden>
+    <div class="nt-sub"><a id="ntPath" title="Ouvrir dans Obsidian"></a><span id="ntState"></span></div>
+    <div id="ntMain">
+      <textarea id="editor" spellcheck="true" autocapitalize="sentences" placeholder="Écris ici…"></textarea>
+      <div id="preview" class="md" hidden></div>
+    </div>
+    <div id="ntSetup" class="nt-setup" hidden>
+      <p>Indique ton coffre Obsidian dans les réglages pour écrire dans ta note du jour.</p>
+      <button type="button" id="ntSetupBtn" class="primary"><svg><use href="#i-gear"/></svg>Réglages</button>
+    </div>
+  </main>
   <div id="status" hidden></div>
 
   <nav id="viewNav" aria-label="Vue">
@@ -63,9 +78,10 @@
     <button data-view="timeGrid3Day">3 jours</button>
     <button data-view="timeGridWeek">Semaine</button>
     <button data-view="dayGridMonth">Mois</button>
-    <a href="notes/" class="nav-notes">Notes</a>
+    <button data-view="notes">Notes</button>
   </nav>
-  <button id="fab" type="button" aria-label="Nouvel événement"><svg><use href="#i-plus"/></svg></button>
+  <button id="fab" type="button" class="cal-only" aria-label="Nouvel événement"><svg><use href="#i-plus"/></svg></button>
+  <button id="selAsk" type="button" hidden><svg><use href="#i-spark"/></svg>Envoyer à l'IA</button>
   <div id="toast" role="status" aria-live="polite"><span></span><button type="button" hidden></button></div>
 
   <!-- Fiche d'un événement -->
@@ -150,6 +166,18 @@
     </div>
   </dialog>
 
+  <!-- Note du jour modifiée ailleurs -->
+  <dialog id="dlgConflict" class="sheet confirm">
+    <div class="sheet-handle"></div>
+    <h2>Note modifiée ailleurs</h2>
+    <p>La note a changé sur un autre appareil (Obsidian ?) pendant que tu écrivais. Laquelle garder ?</p>
+    <p class="hint">L'autre version n'est pas perdue : elle reste dans l'historique des versions de OneDrive.</p>
+    <div class="cf-actions">
+      <button type="button" id="ntTheirs">Prendre l'autre</button>
+      <button type="button" id="ntMine" class="primary">Garder la mienne</button>
+    </div>
+  </dialog>
+
   <!-- Historique -->
   <dialog id="dlgHistory" class="sheet tall">
     <div class="sheet-handle"></div>
@@ -184,6 +212,7 @@
     <form id="asForm" class="as-form">
       <div id="asCtx" hidden></div>
       <div class="as-compose">
+        <button type="button" id="asAttach" class="ib" aria-pressed="false" aria-label="Joindre la note du jour" hidden><svg><use href="#i-clip"/></svg></button>
         <textarea id="asInput" rows="1" placeholder="Une consigne pour Claude…" enterkeyhint="enter"></textarea>
         <button type="submit" id="asSend" class="ib primary" aria-label="Envoyer"><svg><use href="#i-send"/></svg></button>
       </div>
@@ -207,7 +236,7 @@
     </div>
     <div class="menu-links">
       <button type="button" id="menuRecent"><svg><use href="#i-clock"/></svg>Modifiés récemment</button>
-      <a class="btn" href="notes/"><svg><use href="#i-edit"/></svg>Notes du jour</a>
+      <button type="button" id="menuNotes"><svg><use href="#i-edit"/></svg>Notes du jour</button>
       <a class="btn" href="https://onedrive.live.com/?v=recyclebin" target="_blank" rel="noopener"><svg><use href="#i-trash"/></svg>Corbeille OneDrive</a>
     </div>
     <p id="menuSync" class="hint"></p>
@@ -246,25 +275,48 @@
         </div>
       </section>
 
-      <section id="setVaultBox">
+      <section id="setVaultBox" class="needs-login">
         <h3>3. Coffre Obsidian</h3>
         <label class="field"><span>Chemin du coffre dans OneDrive</span>
           <input id="setVault" list="vaultList" autocomplete="off" spellcheck="false" placeholder="ex. Documents/MonCoffre">
           <datalist id="vaultList"></datalist>
         </label>
-        <div class="row wrap">
-          <button type="button" id="setDetect">Chercher mes coffres</button>
-          <button type="button" id="setImport" class="primary">Importer la config Full Calendar</button>
-        </div>
+        <button type="button" id="setDetect">Chercher mes coffres</button>
+      </section>
 
-        <label class="field"><span>Dossier des consignes pour l'assistant IA</span>
-          <input id="setAssistFolder" autocomplete="off" spellcheck="false" placeholder="_IA/consignes">
-        </label>
-
+      <section class="needs-login">
         <h3>Calendriers</h3>
+        <button type="button" id="setImport" class="primary">Importer la config Full Calendar</button>
         <div id="setSources"></div>
         <button type="button" id="setAddSrc">+ Ajouter un calendrier</button>
+      </section>
 
+      <section class="needs-login">
+        <h3>Notes du jour</h3>
+        <button type="button" id="setImportDaily" class="primary">Reprendre les réglages d'Obsidian</button>
+        <p class="hint" id="setDailySource"></p>
+        <label class="field"><span>Dossier</span>
+          <input id="setDailyFolder" autocomplete="off" spellcheck="false" placeholder="(racine du coffre)">
+        </label>
+        <div class="grid2">
+          <label class="field"><span>Format du nom (comme dans Obsidian)</span>
+            <input id="setDailyFormat" autocomplete="off" spellcheck="false" placeholder="YYYY-MM-DD">
+          </label>
+          <label class="field"><span>Langue des dates</span>
+            <select id="setDailyLocale"><option value="fr">Français</option><option value="en">Anglais</option></select>
+          </label>
+        </div>
+        <label class="field"><span>Modèle (facultatif)</span>
+          <input id="setDailyTemplate" autocomplete="off" spellcheck="false" placeholder="ex. Modèles/Journal">
+        </label>
+        <p class="hint">Note d'aujourd'hui : <code id="setDailyPreview"></code></p>
+      </section>
+
+      <section class="needs-login">
+        <h3>Assistant IA</h3>
+        <label class="field"><span>Dossier des consignes</span>
+          <input id="setAssistFolder" autocomplete="off" spellcheck="false" placeholder="_IA/consignes">
+        </label>
       </section>
 
       <section>
@@ -275,34 +327,18 @@
         <div class="field"><span>Style</span><div id="setPalettes" class="pal-grid"></div></div>
         <button type="button" id="setImportThemes">Importer les thèmes de mon coffre Obsidian</button>
         <label class="switch"><input type="checkbox" id="setSnippets" role="switch"><span class="track"></span> Appliquer mes snippets CSS Obsidian</label>
-
-        <h3>Affichage</h3>
         <div class="grid2">
           <label class="field"><span>Taille du texte</span>
             <select id="setTextSize"><option value="s">Petite</option><option value="m">Normale</option><option value="l">Grande</option></select>
           </label>
-          <label class="field"><span>Vue au démarrage</span>
-            <select id="setView">
-              <option value="agenda">Agenda</option>
-              <option value="timeGridDay">Jour</option>
-              <option value="timeGrid3Day">3 jours</option>
-              <option value="timeGridWeek">Semaine</option>
-              <option value="dayGridMonth">Mois</option>
-            </select>
-          </label>
-          <label class="field"><span>Début de semaine</span>
-            <select id="setFirstDay"><option value="1">Lundi</option><option value="0">Dimanche</option><option value="6">Samedi</option></select>
-          </label>
-          <label class="field"><span>Heures affichées : de</span>
-            <select id="setSlotMin"></select>
-          </label>
-          <label class="field"><span>à</span>
-            <select id="setSlotMax"></select>
-          </label>
-          <label class="field"><span>Vue Mois : titre sur</span>
-            <select id="setMonthLines"><option value="1">1 ligne</option><option value="2">2 lignes</option><option value="3">3 lignes</option></select>
+          <label class="field"><span>Texte des notes</span>
+            <select id="setNoteSize"><option value="s">Petit</option><option value="m">Normal</option><option value="l">Grand</option></select>
           </label>
         </div>
+      </section>
+
+      <section>
+        <h3>Onglets</h3>
         <div class="field"><span>Onglets affichés en bas</span>
           <div id="setTabs" class="tab-picks">
             <label><input type="checkbox" value="agenda"> Agenda</label>
@@ -310,7 +346,35 @@
             <label><input type="checkbox" value="timeGrid3Day"> 3 jours</label>
             <label><input type="checkbox" value="timeGridWeek"> Semaine</label>
             <label><input type="checkbox" value="dayGridMonth"> Mois</label>
+            <label><input type="checkbox" value="notes"> Notes</label>
           </div>
+        </div>
+        <label class="field"><span>Onglet au démarrage</span>
+          <select id="setView">
+            <option value="last">Le dernier ouvert</option>
+            <option value="agenda">Agenda</option>
+            <option value="timeGridDay">Jour</option>
+            <option value="timeGrid3Day">3 jours</option>
+            <option value="timeGridWeek">Semaine</option>
+            <option value="dayGridMonth">Mois</option>
+            <option value="notes">Notes</option>
+          </select>
+        </label>
+
+        <h3>Calendrier</h3>
+        <div class="grid2">
+          <label class="field"><span>Début de semaine</span>
+            <select id="setFirstDay"><option value="1">Lundi</option><option value="0">Dimanche</option><option value="6">Samedi</option></select>
+          </label>
+          <label class="field"><span>Vue Mois : titre sur</span>
+            <select id="setMonthLines"><option value="1">1 ligne</option><option value="2">2 lignes</option><option value="3">3 lignes</option></select>
+          </label>
+          <label class="field"><span>Heures affichées : de</span>
+            <select id="setSlotMin"></select>
+          </label>
+          <label class="field"><span>à</span>
+            <select id="setSlotMax"></select>
+          </label>
         </div>
         <label class="switch"><input type="checkbox" id="setWeekends" role="switch"><span class="track"></span> Afficher les week-ends</label>
         <label class="switch"><input type="checkbox" id="setWeekNumbers" role="switch"><span class="track"></span> Numéros de semaine</label>

@@ -7,7 +7,7 @@ directement les notes d'événements du plugin Obsidian **Full Calendar**
 - **Agenda à défilement infini**, vers le passé comme vers le futur, plus les vues **Jour / 3 jours / Semaine / Mois** (balayage gauche-droite pour changer de période).
 - **Séparateurs de semaine** dans l'agenda, avec une mini-icône de calendrier (mois + semaine du mois en surbrillance) et un **+** à côté de chaque jour.
 - **Dates d'ajout et de modification** des notes dans la fiche, et tri « Récemment ajoutés / modifiés » dans la recherche.
-- **Réglages** : thème, taille du texte, week-ends, numéros de semaine, plage horaire, nombre de lignes en vue Mois, durée et calendrier par défaut, glisser-déposer (avec ou sans confirmation, ou désactivé).
+- **Réglages** : onglets affichés et onglet au démarrage, thème, taille du texte (appli et notes), week-ends, numéros de semaine, plage horaire, nombre de lignes en vue Mois, durée et calendrier par défaut, glisser-déposer (avec ou sans confirmation, ou désactivé).
 - Glisser-déposer avec **confirmation** et bouton Annuler. Toucher un jour en vue Mois crée un événement.
 - **Recherche** dans les titres et le contenu des notes, sans tenir compte des accents, avec mots surlignés.
   Les événements à venir sont listés avant les passés.
@@ -32,13 +32,15 @@ directement les notes d'événements du plugin Obsidian **Full Calendar**
 - Thème clair ou sombre automatique. Le bouton retour d'Android ferme les fenêtres.
 - Aucun serveur. L'appli parle directement à OneDrive depuis ton navigateur.
 
-## Notes du jour (`/notes/`)
+## Onglet Notes (note du jour)
 
-Partie « notes » de l'appli, à l'adresse `https://bobinebobine.github.io/Full_calendar/notes/`.
-Android n'installe qu'une appli par site : c'est donc **la même appli que le Calendrier**, avec trois accès directs :
-- l'onglet **Notes** dans la barre du bas du Calendrier, et l'icône calendrier en haut des Notes pour revenir ;
-- **appui long sur l'icône** Calendrier → « Notes du jour » ou « Assistant IA » ;
-- en faisant glisser ce raccourci sur l'écran d'accueil, on obtient une **icône Notes séparée** (verte).
+Les notes sont un **onglet comme Agenda, Jour ou Mois**, dans la même appli et la même barre du bas.
+Mêmes boutons en haut (‹ › pour changer de jour, toucher le titre pour choisir une date, pastille du jour pour revenir
+à aujourd'hui, assistant IA, synchro, menu), plus un bouton **Lecture / Modifier**.
+- **Raccourci** : appui long sur l'icône → « Notes du jour » ouvre directement l'onglet Notes
+  (glissé sur l'écran d'accueil, il donne une icône Notes séparée). L'ancienne adresse `/notes/` y mène aussi.
+- **Réglages communs** : un seul écran (section *Notes du jour*), on y choisit aussi les onglets affichés
+  et l'onglet au démarrage (ou « le dernier ouvert »). Les anciens réglages de l'appli Notes sont repris automatiquement.
 
 - Ouvre **la note quotidienne d'Obsidian** (aujourd'hui par défaut), curseur à la fin, prête à écrire.
   Dossier, format du nom et modèle sont **repris des réglages d'Obsidian** (*Notes quotidiennes* ou *Periodic Notes*),
@@ -53,11 +55,9 @@ Android n'installe qu'une appli par site : c'est donc **la même appli que le Ca
   gardés ; sinon l'appli demande laquelle garder (l'autre reste dans l'historique des versions de OneDrive).
   Si la note du jour a été créée ailleurs entre-temps, ton texte est ajouté à la fin.
 - Jour précédent / suivant, choix d'une date en touchant le titre, mode **Lecture** (cases cochables).
-- **Assistant IA** : les mêmes consignes que le Calendrier (`_IA/consignes/`, `source: notes`).
+- **Assistant IA** : le même que pour l'agenda (`_IA/consignes/`, `source: notes` depuis cet onglet).
   Bouton trombone pour joindre la note du jour ; sélectionne un passage puis **« Envoyer à l'IA »**
   pour l'envoyer cité dans la consigne, avec la note en lien.
-- Connexion, coffre et style sont **partagés avec le Calendrier** (même site) : rien à reconfigurer.
-  Une seule adresse de retour de connexion pour les deux applis (la racine du site), rien à ajouter côté Microsoft.
 
 ## Mise en place (une seule fois)
 
@@ -110,7 +110,7 @@ Android n'installe qu'une appli par site : c'est donc **la même appli que le Ca
 ## Développement
 
 Aucune étape de build. Pour lancer en local : `python3 -m http.server`.
-Tests : `node tests/md.test.mjs && node tests/extra.test.mjs`.
+Tests : `node tests/md.test.mjs && node tests/extra.test.mjs && node tests/daily.test.mjs`.
 
 - `js/md.js` : lecture et écriture du format Full Calendar.
 - `js/graph.js` : accès OneDrive (Microsoft Graph).
@@ -118,4 +118,5 @@ Tests : `node tests/md.test.mjs && node tests/extra.test.mjs`.
 - `js/nlp.js` : saisie rapide en français.
 - `js/markdown.js` : rendu des notes et cases à cocher.
 - `js/assist.js` : format des notes de consigne pour l'assistant IA.
+- `js/notes.js` / `js/daily.js` : onglet Notes (note quotidienne) et format des notes quotidiennes d'Obsidian.
 - `js/app.js` : interface (FullCalendar 6, fourni dans `vendor/`, licence MIT).

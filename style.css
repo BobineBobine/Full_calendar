@@ -108,7 +108,8 @@ body.busy #btnSync svg, body.busy #menuSyncBtn svg { animation: spin .9s linear 
   display: flex; gap: 4px; margin: 6px 10px calc(8px + env(safe-area-inset-bottom));
   padding: 4px; background: var(--surface); border-radius: 14px;
 }
-#viewNav button { flex: 1; border: 0; background: transparent; min-height: 36px; padding: 6px 0; border-radius: 10px; font-size: .86rem; font-weight: 600; color: var(--muted); }
+#viewNav button, #viewNav .nav-notes { flex: 1; border: 0; background: transparent; min-height: 36px; padding: 6px 0; border-radius: 10px; font-size: .86rem; font-weight: 600; color: var(--muted); }
+#viewNav .nav-notes { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; color: var(--accent); }
 #viewNav button[aria-pressed="true"] { background: var(--bg); color: var(--fg); box-shadow: 0 1px 4px rgba(0,0,0,.12); }
 
 #fab {

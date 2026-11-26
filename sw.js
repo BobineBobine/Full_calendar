@@ -3,14 +3,14 @@
 // (pas de mélange ancien/nouveau fichiers) ; hors ligne, on sert la copie en cache.
 // Les appels OneDrive / Microsoft ne passent jamais par ce cache.
 // Sert aussi l'appli « Notes du jour » (dossier notes/), qui l'enregistre avec la même portée.
-const VERSION = 'v8';
+const VERSION = 'v9';
 const SHELL = [
   './', 'index.html', 'style.css', 'manifest.webmanifest',
   'js/app.js', 'js/auth.js', 'js/graph.js', 'js/md.js', 'js/markdown.js', 'js/nlp.js', 'js/themes.js', 'js/assist.js',
   'vendor/fullcalendar.min.js', 'vendor/fc-fr.min.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
   // Appli « Notes du jour »
-  'notes/', 'notes/notes.css', 'notes/manifest.webmanifest', 'js/notes.js', 'js/daily.js',
+  'notes/', 'notes/notes.css', 'js/notes.js', 'js/daily.js',
   'icons/notes.svg', 'icons/notes-192.png', 'icons/notes-512.png',
 ];
 // Une page = une entrée de cache, sans les paramètres (?code=… au retour de connexion).

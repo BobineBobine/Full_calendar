@@ -1649,7 +1649,7 @@ function flashToday() {
 function applyTabs() {
   const tabs = Array.isArray(settings.tabs) && settings.tabs.length ? settings.tabs : ['agenda', 'dayGridMonth'];
   for (const b of document.querySelectorAll('#viewNav button')) b.hidden = !tabs.includes(b.dataset.view);
-  $('#viewNav').hidden = tabs.length < 2;
+  $('#viewNav').hidden = false; // toujours là : l'onglet Notes y est
 }
 
 function setActiveView(type) {
@@ -1903,6 +1903,7 @@ async function start() {
   }
   sync({ quiet: true });
   loadAssist({ quiet: true });
+  if (new URLSearchParams(location.search).has('assist')) { history.replaceState(null, '', location.pathname); openAssist(); }
 }
 
 start();

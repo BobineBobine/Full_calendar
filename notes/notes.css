@@ -23,6 +23,7 @@
 #preview { flex: 1; min-height: 0; overflow-y: auto; margin: 0; background: transparent; padding: 8px 6px 40vh; font-size: var(--note-fs, 1rem); }
 #preview h3 { font-size: 1.3em; } #preview h4 { font-size: 1.15em; } #preview h5, #preview h6 { font-size: 1.02em; }
 
+#btnCal { display: inline-flex; align-items: center; justify-content: center; color: inherit; }
 #btnMode[aria-pressed="true"] { color: var(--accent); }
 #asAttach { flex: none; width: 44px; height: 44px; color: var(--muted); }
 #asAttach[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }

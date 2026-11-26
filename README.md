@@ -34,8 +34,11 @@ directement les notes d'événements du plugin Obsidian **Full Calendar**
 
 ## Notes du jour (`/notes/`)
 
-Deuxième appli du même dépôt, installable à part sur l'écran d'accueil (icône verte « Notes ») :
-`https://bobinebobine.github.io/Full_calendar/notes/`.
+Partie « notes » de l'appli, à l'adresse `https://bobinebobine.github.io/Full_calendar/notes/`.
+Android n'installe qu'une appli par site : c'est donc **la même appli que le Calendrier**, avec trois accès directs :
+- l'onglet **Notes** dans la barre du bas du Calendrier, et l'icône calendrier en haut des Notes pour revenir ;
+- **appui long sur l'icône** Calendrier → « Notes du jour » ou « Assistant IA » ;
+- en faisant glisser ce raccourci sur l'écran d'accueil, on obtient une **icône Notes séparée** (verte).
 
 - Ouvre **la note quotidienne d'Obsidian** (aujourd'hui par défaut), curseur à la fin, prête à écrire.
   Dossier, format du nom et modèle sont **repris des réglages d'Obsidian** (*Notes quotidiennes* ou *Periodic Notes*),

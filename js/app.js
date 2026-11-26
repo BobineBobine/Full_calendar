@@ -2033,6 +2033,9 @@ async function start() {
     onSelection: () => updateSelAsk(),
     suggest: q => vault.suggest(q),
     ensureIndex: () => vault.ensureIndex(),
+    linkExists: t => vault.linkExists(t),
+    loadImage: (t, fromRel) => vault.imageURL(t, fromRel),
+    attachFiles: (files, noteRel) => vault.attachFiles(files, noteRel),
     openLink,
   });
   wireUI();

@@ -10,10 +10,10 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="style.css?v=11">
+  <link rel="stylesheet" href="style.css?v=12">
   <script src="vendor/fullcalendar.min.js"></script>
   <script src="vendor/fc-fr.min.js"></script>
-  <script type="module" src="js/app.js?v=11"></script>
+  <script type="module" src="js/app.js?v=12"></script>
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -38,6 +38,8 @@
       <symbol id="i-send" viewBox="0 0 24 24"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></symbol>
       <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
       <symbol id="i-clip" viewBox="0 0 24 24"><path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+      <symbol id="i-collapse" viewBox="0 0 24 24"><path d="m7 20 5-5 5 5M7 4l5 5 5-5"/></symbol>
       <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
     </defs>
   </svg>
@@ -70,6 +72,44 @@
       <button type="button" id="ntSetupBtn" class="primary"><svg><use href="#i-gear"/></svg>Réglages</button>
     </div>
   </main>
+  <main id="vaultView" class="vt" hidden>
+    <aside class="vt-side">
+      <div class="vt-side-head">
+        <input id="vtSearch" type="search" placeholder="Rechercher dans le coffre (Ctrl+O)" autocomplete="off" enterkeyhint="search">
+        <button type="button" id="vtNew" class="ib" title="Nouvelle note (Ctrl+N)" aria-label="Nouvelle note"><svg><use href="#i-plus"/></svg></button>
+        <button type="button" id="vtCollapse" class="ib" title="Tout replier" aria-label="Tout replier"><svg><use href="#i-collapse"/></svg></button>
+      </div>
+      <div id="vtStatus" class="hint" hidden></div>
+      <div id="vtTree"></div>
+    </aside>
+    <section class="vt-main">
+      <div id="vtWelcome" class="vt-welcome">
+        <svg><use href="#i-folder"/></svg>
+        <p>Choisis une note à gauche, ou cherche-la (Ctrl+O).</p>
+        <button type="button" id="vtWelcomeNew" class="primary"><svg><use href="#i-plus"/></svg>Nouvelle note</button>
+      </div>
+      <div id="vtSetup" class="nt-setup" hidden>
+        <p>Indique ton coffre Obsidian dans les réglages pour le parcourir ici.</p>
+        <button type="button" id="vtSetupBtn" class="primary"><svg><use href="#i-gear"/></svg>Réglages</button>
+      </div>
+      <article id="vtPane" hidden>
+        <div class="vt-bar">
+          <button type="button" id="vtBackToList" class="ib vt-back" aria-label="Liste des notes"><svg><use href="#i-left"/></svg></button>
+          <span id="vtCrumbs"></span>
+          <span id="vtState"></span>
+          <button type="button" id="vtMode"></button>
+          <a id="vtObsidian" class="ib" title="Ouvrir dans Obsidian" aria-label="Ouvrir dans Obsidian"><svg><use href="#i-ext"/></svg></a>
+          <button type="button" id="vtDelete" class="ib" title="Supprimer" aria-label="Supprimer"><svg><use href="#i-trash"/></svg></button>
+        </div>
+        <div class="vt-doc">
+          <input id="vtTitle" class="vt-title" autocomplete="off" spellcheck="false" aria-label="Nom de la note">
+          <textarea id="vtEditor" spellcheck="true" placeholder="Écris ici…"></textarea>
+          <div id="vtPreview" class="md vt-md"></div>
+          <div id="vtBacklinks"></div>
+        </div>
+      </article>
+    </section>
+  </main>
   <div id="status" hidden></div>
 
   <nav id="viewNav" aria-label="Vue">
@@ -79,6 +119,7 @@
     <button data-view="timeGridWeek">Semaine</button>
     <button data-view="dayGridMonth">Mois</button>
     <button data-view="notes">Notes</button>
+    <button data-view="vault">Coffre</button>
   </nav>
   <button id="fab" type="button" class="cal-only" aria-label="Nouvel événement"><svg><use href="#i-plus"/></svg></button>
   <button id="selAsk" type="button" hidden><svg><use href="#i-spark"/></svg>Envoyer à l'IA</button>
@@ -347,6 +388,7 @@
             <label><input type="checkbox" value="timeGridWeek"> Semaine</label>
             <label><input type="checkbox" value="dayGridMonth"> Mois</label>
             <label><input type="checkbox" value="notes"> Notes</label>
+            <label><input type="checkbox" value="vault"> Coffre</label>
           </div>
         </div>
         <label class="field"><span>Onglet au démarrage</span>
@@ -358,6 +400,7 @@
             <option value="timeGridWeek">Semaine</option>
             <option value="dayGridMonth">Mois</option>
             <option value="notes">Notes</option>
+            <option value="vault">Coffre</option>
           </select>
         </label>
 

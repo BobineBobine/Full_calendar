@@ -59,6 +59,21 @@ Mêmes boutons en haut (‹ › pour changer de jour, toucher le titre pour choi
   Bouton trombone pour joindre la note du jour ; sélectionne un passage puis **« Envoyer à l'IA »**
   pour l'envoyer cité dans la consigne, avec la note en lien.
 
+## Onglet Coffre (tout le coffre Obsidian)
+
+Un « Obsidian en ligne » branché sur OneDrive, pensé pour l'ordinateur (s'adapte au téléphone).
+- **Arborescence** du coffre à gauche (dossiers `.obsidian`, `.trash`… masqués), note à droite.
+- **Lecture** (Markdown, propriétés, cases à cocher, tableaux, blocs de code, images `![[photo.png|200]]`,
+  notes intégrées `![[note]]`) et **modification** (Ctrl+E), enregistrement automatique avec contrôle des conflits.
+- **Liens `[[…]]` cliquables** : ouvrent la note, ou la créent si elle n'existe pas (comme Obsidian). Liens absents en plus pâle.
+- **Rétroliens** sous chaque note, **recherche** dans les noms et le contenu de tout le coffre (sans accents).
+- **Créer** (Ctrl+N), **renommer** (en modifiant le titre), **supprimer** (corbeille OneDrive), ouvrir dans Obsidian.
+- ‹ › en haut : note précédente / suivante (aussi Alt+← / Alt+→). Ctrl+O : chercher.
+- La première ouverture lit tout le coffre ; ensuite seules les notes modifiées sont retéléchargées
+  (API « delta » de OneDrive). Le texte est gardé dans le navigateur (IndexedDB) : recherche instantanée, lecture hors ligne.
+- Pas (encore) de vue graphe, de plugins ni d'aperçu en direct pendant la frappe. Renommer une note ne met pas à jour
+  les liens qui pointent vers elle (l'appli indique combien il y en a).
+
 ## Mise en place (une seule fois)
 
 ### 1. Héberger l'appli (GitHub Pages)
@@ -118,5 +133,6 @@ Tests : `node tests/md.test.mjs && node tests/extra.test.mjs && node tests/daily
 - `js/nlp.js` : saisie rapide en français.
 - `js/markdown.js` : rendu des notes et cases à cocher.
 - `js/assist.js` : format des notes de consigne pour l'assistant IA.
+- `js/vault.js` : onglet Coffre (arborescence, lecture/édition, liens, rétroliens, recherche).
 - `js/notes.js` / `js/daily.js` : onglet Notes (note quotidienne) et format des notes quotidiennes d'Obsidian.
 - `js/app.js` : interface (FullCalendar 6, fourni dans `vendor/`, licence MIT).

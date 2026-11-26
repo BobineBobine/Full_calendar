@@ -6,6 +6,7 @@ import { parseQuick } from './nlp.js';
 import { PALETTES, applyPalette, paletteFromObsidianCss, SNIPPET_BRIDGE } from './themes.js';
 import * as assist from './assist.js';
 import * as notes from './notes.js';
+import * as vault from './vault.js';
 import * as daily from './daily.js';
 
 // ---------- Stockage local ----------
@@ -14,8 +15,8 @@ const LS = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { console.warn(e); } },
 };
 
-const VIEWS = ['agenda', 'timeGridDay', 'timeGrid3Day', 'timeGridWeek', 'dayGridMonth', 'notes'];
-const DEFAULT_TABS = ['agenda', 'dayGridMonth', 'notes'];
+const VIEWS = ['agenda', 'timeGridDay', 'timeGrid3Day', 'timeGridWeek', 'dayGridMonth', 'notes', 'vault'];
+const DEFAULT_TABS = ['agenda', 'dayGridMonth', 'notes', 'vault'];
 const normView = v => (v === 'listWeek' || /^list/.test(v || '')) ? 'agenda' : (VIEWS.includes(v) ? v : null);
 const DEFAULT_SETTINGS = { clientId: '', vaultPath: '', sources: [], firstDay: 1, initialView: 'agenda', defaultCalId: null,
   theme: 'auto', textSize: 'm', weekends: true, weekNumbers: false, slotMin: 0, slotMax: 24,
@@ -35,6 +36,13 @@ if (!settings.notesMerged) {
   settings.notesMerged = true;
   LS.set('fc.settings', settings);
 }
+if (!settings.vaultTab) { // nouvel onglet Coffre : ajouté une fois aux onglets existants
+  if (Array.isArray(settings.tabs) && !settings.tabs.includes('vault')) settings.tabs = [...settings.tabs, 'vault'];
+  settings.vaultTab = true;
+  LS.set('fc.settings', settings);
+}
+/** Onglet qui affiche une note (Notes ou Coffre) : pour l'assistant IA. */
+const notePane = () => (currentView === 'notes' && notes.configured() ? notes : currentView === 'vault' && vault.current() ? vault : null);
 const tabsOf = () => (Array.isArray(settings.tabs) && settings.tabs.length ? settings.tabs : DEFAULT_TABS).filter(v => VIEWS.includes(v));
 let cache = LS.get('fc.cache', { files: {} }); // id -> { id, name, calId, eTag, text }
 let hidden = new Set(LS.get('fc.hidden', []));
@@ -703,11 +711,13 @@ function setView(v) {
   currentView = v;
   LS.set('fc.view', v);
   setActiveView(v);
-  const isAg = v === 'agenda', isNotes = v === 'notes';
+  const isAg = v === 'agenda', isNotes = v === 'notes', isVault = v === 'vault';
   $('#agenda').hidden = !isAg;
-  $('#cal').hidden = isAg || isNotes;
+  $('#cal').hidden = isAg || isNotes || isVault;
+  if (!isNotes) notes.hide();
+  if (!isVault) vault.hide();
   if (isNotes) { notes.show(); return; }
-  notes.hide();
+  if (isVault) { vault.show(); return; }
   if (isAg) {
     if (!agenda.start) scrollToDate(todayStr());
     else renderAgenda({ keepScroll: true });
@@ -724,14 +734,14 @@ function gotoDay(date) {
 }
 
 const nav = {
-  prev: () => (currentView === 'notes' ? notes.nav.prev() : currentView === 'agenda' ? agendaJump(-1) : calendar.prev()),
-  next: () => (currentView === 'notes' ? notes.nav.next() : currentView === 'agenda' ? agendaJump(1) : calendar.next()),
+  prev: () => (currentView === 'vault' ? vault.nav.back() : currentView === 'notes' ? notes.nav.prev() : currentView === 'agenda' ? agendaJump(-1) : calendar.prev()),
+  next: () => (currentView === 'vault' ? vault.nav.forward() : currentView === 'notes' ? notes.nav.next() : currentView === 'agenda' ? agendaJump(1) : calendar.next()),
   today: () => {
     if (currentView === 'notes') { notes.nav.today(); flashToday(); return; }
     if (currentView === 'agenda') scrollToDate(todayStr(), true); else calendar.today();
     flashToday();
   },
-  title: () => (currentView === 'notes' ? notes.nav.pick() : nav.today()),
+  title: () => (currentView === 'vault' ? vault.nav.search() : currentView === 'notes' ? notes.nav.pick() : nav.today()),
 };
 
 // ---------- Fiche événement ----------
@@ -1188,7 +1198,7 @@ function renderAssist({ scroll = false } = {}) {
           ${c.suite ? `<div class="as-ref">↪ Réponse à « ${esc(c.suite.split('/').pop())} »</div>` : ''}
           ${c.lien ? `<div class="as-ref">📎 ${esc(c.lien.split('/').pop())}</div>` : ''}
           <div class="as-text">${renderMarkdown(c.ask)}</div>
-          <div class="as-meta"><span class="as-badge">${esc(c.label)}</span><span>${esc(fmtWhen(c.cree))}</span>${c.source ? `<span>· ${esc({ calendrier: 'Calendrier', notes: 'Notes' }[c.source] || c.source)}</span>` : ''}
+          <div class="as-meta"><span class="as-badge">${esc(c.label)}</span><span>${esc(fmtWhen(c.cree))}</span>${c.source ? `<span>· ${esc({ calendrier: 'Calendrier', notes: 'Notes', coffre: 'Coffre' }[c.source] || c.source)}</span>` : ''}
             ${c.statut === 'attente' ? '<button type="button" class="as-act" data-act="reply">Répondre</button>' : ''}
             ${c.statut === 'a-traiter' ? '<button type="button" class="as-act" data-act="cancel">Retirer</button>' : ''}
           </div>
@@ -1208,7 +1218,7 @@ function renderAssistCtx() {
   $('#asCtx').innerHTML = parts.join('');
   $('#asCtx').hidden = !parts.length;
   // Trombone : joindre la note du jour (onglet Notes)
-  const note = currentView === 'notes' && notes.configured() ? notes.current() : null;
+  const note = notePane()?.current() || null;
   $('#asAttach').hidden = !note;
   $('#asAttach').setAttribute('aria-pressed', String(!!note && asCtx.lien === note.rel));
 }
@@ -1265,18 +1275,18 @@ async function sendAssist(e) {
   if (!text && !asCtx.quote) return;
   if (asCtx.quote) {
     const q = asCtx.quote.trim().split('\n').map(l => '> ' + l).join('\n');
-    text = `${text || 'Voir ce passage.'}\n\nPassage de ma note du jour :\n${q}`;
+    text = `${text || 'Voir ce passage.'}\n\nPassage de ${asCtx.lienLabel ? `« ${asCtx.lienLabel} »` : 'ma note'} :\n${q}`;
   }
   const btn = $('#asSend');
   btn.disabled = true;
   try {
-    if (currentView === 'notes') await notes.flush(); // la note jointe doit être à jour pour Claude
+    await notePane()?.flush(); // la note jointe doit être à jour pour Claude
     const now = new Date();
     const note = assist.buildConsigne(text, {
       lien: asCtx.lien ? `[[${asCtx.lien}]]` : null,
       suite: asCtx.suite ? `[[${asCtx.suite}]]` : null,
       date: now,
-      source: currentView === 'notes' ? 'notes' : 'calendrier',
+      source: { notes: 'notes', vault: 'coffre' }[currentView] || 'calendrier',
     });
     const item = await graph.createFile(asDir(), assist.fileNameFor(typed || text, now), note);
     asCache.files[item.id] = { id: item.id, name: item.name, eTag: item.eTag, text: note, created: item.createdDateTime || now.toISOString() };
@@ -1686,6 +1696,7 @@ function wireSettings() {
     if ($('#setDailySource').dataset.source) settings.dailyImported = true;
     saveSettings();
     if (JSON.stringify([settings.vaultPath, settings.daily]) !== before) notes.reload();
+    if (JSON.parse(before)[0] !== settings.vaultPath) vault.reset();
     for (const [id, f] of Object.entries(cache.files)) if (!sourceById(f.calId)) delete cache.files[id];
     saveCache();
     closeDlg($('#dlgSettings'));
@@ -1737,7 +1748,7 @@ function initCalendar() {
   calendar = new FullCalendar.Calendar($('#cal'), {
     locale: 'fr',
     firstDay: settings.firstDay,
-    initialView: normView(saved) && !['agenda', 'notes'].includes(normView(saved)) ? normView(saved) : 'timeGridWeek',
+    initialView: normView(saved) && !['agenda', 'notes', 'vault'].includes(normView(saved)) ? normView(saved) : 'timeGridWeek',
     headerToolbar: false,
     footerToolbar: false,
     views: {
@@ -1776,7 +1787,7 @@ function initCalendar() {
     eventDrop: onMove,
     eventResize: onMove,
     datesSet: info => {
-      if (currentView === 'agenda' || currentView === 'notes') return;
+      if (['agenda', 'notes', 'vault'].includes(currentView)) return;
       $('#hdrTitleText').textContent = info.view.title;
     },
   });
@@ -1822,7 +1833,11 @@ function wireUI() {
   $('#btnToday').onclick = nav.today;
   $('#btnSearch').onclick = openSearch;
   $('#btnAssist').onclick = () => openAssist();
-  $('#btnSync').onclick = () => { if (currentView === 'notes') notes.refresh(); sync(); loadAssist({ quiet: true }); };
+  $('#btnSync').onclick = () => {
+    if (currentView === 'notes') notes.refresh();
+    if (currentView === 'vault') vault.sync({ quiet: false }); else sync();
+    loadAssist({ quiet: true });
+  };
   $('#btnMode').onclick = notes.toggleMode;
   $('#menuNotes').onclick = () => { closeDlg($('#dlgMenu')); setView('notes'); };
   $('#ntSetupBtn').onclick = () => openSettings();
@@ -1900,7 +1915,8 @@ function wireUI() {
   $('#asInput').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) sendAssist(e); });
   $('#asRefresh').onclick = () => loadAssist().then(() => renderAssist({ scroll: true }));
   $('#asAttach').onclick = () => {
-    const n = notes.current();
+    const n = notePane()?.current();
+    if (!n) return;
     if (asCtx.lien === n.rel) { asCtx.lien = null; asCtx.lienLabel = ''; } else { asCtx.lien = n.rel; asCtx.lienLabel = n.label; }
     renderAssistCtx();
   };
@@ -1909,9 +1925,9 @@ function wireUI() {
   $('#dlgAssist').addEventListener('close', updateSelAsk);
   $('#selAsk').addEventListener('pointerdown', e => e.preventDefault()); // garde la sélection au moment du clic
   $('#selAsk').onclick = () => {
-    const q = notes.selection();
-    const n = notes.current();
-    if (q) openAssist({ quote: q, lien: n.rel, lienLabel: n.label });
+    const q = notePane()?.selection();
+    const n = notePane()?.current();
+    if (q && n) openAssist({ quote: q, lien: n.rel, lienLabel: n.label });
   };
   $('#dlgAssist').addEventListener('click', onAssistClick);
   $('#dtAsk').onclick = () => {
@@ -1958,7 +1974,7 @@ function wireUI() {
   });
 }
 
-function updateSelAsk() { $('#selAsk').hidden = !notes.selection() || $('#dlgAssist').open; }
+function updateSelAsk() { $('#selAsk').hidden = !notePane()?.selection() || $('#dlgAssist').open; }
 
 async function start() {
   if ('serviceWorker' in navigator) {
@@ -1973,6 +1989,13 @@ async function start() {
     navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).catch(() => {});
   }
   applyPrefs();
+  vault.init({
+    settings: () => settings,
+    toast, handleError, askConfirm,
+    setTitle: t => { $('#hdrTitleText').textContent = t; },
+    onSelection: () => updateSelAsk(),
+    openSettings: () => openSettings(),
+  });
   notes.init({
     settings: () => settings,
     patchSettings: p => { Object.assign(settings, p); saveSettings(); },
@@ -2009,7 +2032,7 @@ async function start() {
   }
   sync({ quiet: true });
   loadAssist({ quiet: true });
-  if (redirect?.ok) notes.reload(); // connexion tout juste terminée : la note du jour peut maintenant être lue
+  if (redirect?.ok) { notes.reload(); if (currentView === 'vault') vault.sync(); } // connexion tout juste terminée : la note du jour peut maintenant être lue
   if (new URLSearchParams(location.search).has('assist')) { history.replaceState(null, '', location.pathname); openAssist(); }
 }
 

@@ -5,6 +5,8 @@ import { renderMarkdown, toggleTask } from './markdown.js';
 import { parseQuick } from './nlp.js';
 import { PALETTES, applyPalette, paletteFromObsidianCss, SNIPPET_BRIDGE } from './themes.js';
 import * as assist from './assist.js';
+import * as notes from './notes.js';
+import * as daily from './daily.js';
 
 // ---------- Stockage local ----------
 const LS = {
@@ -12,13 +14,28 @@ const LS = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { console.warn(e); } },
 };
 
-const VIEWS = ['agenda', 'timeGridDay', 'timeGrid3Day', 'timeGridWeek', 'dayGridMonth'];
+const VIEWS = ['agenda', 'timeGridDay', 'timeGrid3Day', 'timeGridWeek', 'dayGridMonth', 'notes'];
+const DEFAULT_TABS = ['agenda', 'dayGridMonth', 'notes'];
 const normView = v => (v === 'listWeek' || /^list/.test(v || '')) ? 'agenda' : (VIEWS.includes(v) ? v : null);
 const DEFAULT_SETTINGS = { clientId: '', vaultPath: '', sources: [], firstDay: 1, initialView: 'agenda', defaultCalId: null,
   theme: 'auto', textSize: 'm', weekends: true, weekNumbers: false, slotMin: 0, slotMax: 24,
-  monthLines: 2, defaultDuration: 60, dragMode: 'confirm', agendaWeeks: true, palette: 'rose', useSnippets: false, agendaEmpty: true, tabs: ['agenda', 'dayGridMonth'], assistFolder: '_IA/consignes' };
+  monthLines: 2, defaultDuration: 60, dragMode: 'confirm', agendaWeeks: true, palette: 'rose', useSnippets: false, agendaEmpty: true, tabs: DEFAULT_TABS, assistFolder: '_IA/consignes',
+  startView: 'last', daily: { ...daily.DEFAULT_DAILY }, dailyImported: false, noteTextSize: 'm' };
 
 let settings = { ...DEFAULT_SETTINGS, ...LS.get('fc.settings', {}) };
+// Ancienne appli « Notes du jour » séparée : ses réglages rejoignent ceux de l'appli, et Notes devient un onglet.
+if (!settings.notesMerged) {
+  const nq = LS.get('nq.settings', null);
+  if (nq) {
+    if (nq.daily) settings.daily = { ...daily.DEFAULT_DAILY, ...nq.daily };
+    if (nq.dailyImported) settings.dailyImported = true;
+    if (nq.textSize) settings.noteTextSize = nq.textSize;
+  }
+  if (Array.isArray(settings.tabs) && !settings.tabs.includes('notes')) settings.tabs = [...settings.tabs, 'notes'];
+  settings.notesMerged = true;
+  LS.set('fc.settings', settings);
+}
+const tabsOf = () => (Array.isArray(settings.tabs) && settings.tabs.length ? settings.tabs : DEFAULT_TABS).filter(v => VIEWS.includes(v));
 let cache = LS.get('fc.cache', { files: {} }); // id -> { id, name, calId, eTag, text }
 let hidden = new Set(LS.get('fc.hidden', []));
 const parsedMemo = new Map();
@@ -686,9 +703,11 @@ function setView(v) {
   currentView = v;
   LS.set('fc.view', v);
   setActiveView(v);
-  const isAg = v === 'agenda';
+  const isAg = v === 'agenda', isNotes = v === 'notes';
   $('#agenda').hidden = !isAg;
-  $('#cal').hidden = isAg;
+  $('#cal').hidden = isAg || isNotes;
+  if (isNotes) { notes.show(); return; }
+  notes.hide();
   if (isAg) {
     if (!agenda.start) scrollToDate(todayStr());
     else renderAgenda({ keepScroll: true });
@@ -705,12 +724,14 @@ function gotoDay(date) {
 }
 
 const nav = {
-  prev: () => (currentView === 'agenda' ? agendaJump(-1) : calendar.prev()),
-  next: () => (currentView === 'agenda' ? agendaJump(1) : calendar.next()),
+  prev: () => (currentView === 'notes' ? notes.nav.prev() : currentView === 'agenda' ? agendaJump(-1) : calendar.prev()),
+  next: () => (currentView === 'notes' ? notes.nav.next() : currentView === 'agenda' ? agendaJump(1) : calendar.next()),
   today: () => {
+    if (currentView === 'notes') { notes.nav.today(); flashToday(); return; }
     if (currentView === 'agenda') scrollToDate(todayStr(), true); else calendar.today();
     flashToday();
   },
+  title: () => (currentView === 'notes' ? notes.nav.pick() : nav.today()),
 };
 
 // ---------- Fiche événement ----------
@@ -1129,7 +1150,8 @@ function openSearch() {
 // Une note par consigne dans <coffre>/<assistFolder>. L'appli ne fait que créer
 // des notes ; la tâche planifiée du soir les traite et y écrit sa réponse.
 let asCache = LS.get('fc.assist', { files: {} }); // id -> { id, name, eTag, text, created }
-let asCtx = { lien: null, lienLabel: '', suite: null, suiteLabel: '' };
+const AS_EMPTY = { lien: null, lienLabel: '', suite: null, suiteLabel: '', quote: '', source: null };
+let asCtx = { ...AS_EMPTY };
 let asLoading = false;
 const asDir = () => graph.joinPath(settings.vaultPath, settings.assistFolder || '_IA/consignes');
 const asRel = name => graph.joinPath(settings.assistFolder || '_IA/consignes', name.replace(/\.md$/i, ''));
@@ -1166,7 +1188,7 @@ function renderAssist({ scroll = false } = {}) {
           ${c.suite ? `<div class="as-ref">↪ Réponse à « ${esc(c.suite.split('/').pop())} »</div>` : ''}
           ${c.lien ? `<div class="as-ref">📎 ${esc(c.lien.split('/').pop())}</div>` : ''}
           <div class="as-text">${renderMarkdown(c.ask)}</div>
-          <div class="as-meta"><span class="as-badge">${esc(c.label)}</span><span>${esc(fmtWhen(c.cree))}</span>${c.source && c.source !== 'calendrier' ? `<span>· via ${esc(c.source === 'notes' ? 'Notes du jour' : c.source)}</span>` : ''}
+          <div class="as-meta"><span class="as-badge">${esc(c.label)}</span><span>${esc(fmtWhen(c.cree))}</span>${c.source ? `<span>· ${esc({ calendrier: 'Calendrier', notes: 'Notes' }[c.source] || c.source)}</span>` : ''}
             ${c.statut === 'attente' ? '<button type="button" class="as-act" data-act="reply">Répondre</button>' : ''}
             ${c.statut === 'a-traiter' ? '<button type="button" class="as-act" data-act="cancel">Retirer</button>' : ''}
           </div>
@@ -1181,9 +1203,14 @@ function renderAssist({ scroll = false } = {}) {
 function renderAssistCtx() {
   const parts = [];
   if (asCtx.suite) parts.push(`<span class="as-chip">↪ Réponse à « ${esc(asCtx.suiteLabel)} » <button type="button" data-clear="suite" aria-label="Retirer">×</button></span>`);
+  if (asCtx.quote) parts.push(`<span class="as-chip as-quote">« ${esc(asCtx.quote.length > 140 ? asCtx.quote.slice(0, 140) + '…' : asCtx.quote)} » <button type="button" data-clear="quote" aria-label="Retirer">×</button></span>`);
   if (asCtx.lien) parts.push(`<span class="as-chip">📎 ${esc(asCtx.lienLabel)} <button type="button" data-clear="lien" aria-label="Retirer">×</button></span>`);
   $('#asCtx').innerHTML = parts.join('');
   $('#asCtx').hidden = !parts.length;
+  // Trombone : joindre la note du jour (onglet Notes)
+  const note = currentView === 'notes' && notes.configured() ? notes.current() : null;
+  $('#asAttach').hidden = !note;
+  $('#asAttach').setAttribute('aria-pressed', String(!!note && asCtx.lien === note.rel));
 }
 
 function updateAsDot() {
@@ -1217,6 +1244,7 @@ async function loadAssist({ quiet = false } = {}) {
 function openAssist(ctx = {}) {
   if (!settings.vaultPath) { toastError("Indique d'abord ton coffre dans les réglages."); return; }
   if (ctx.lien) { asCtx.lien = ctx.lien; asCtx.lienLabel = ctx.lienLabel || ctx.lien.split('/').pop(); }
+  if (ctx.quote) asCtx.quote = ctx.quote;
   const d = $('#dlgAssist');
   if (ctx.from) swapDlg(ctx.from, d); else if (!d.open) openDlg(d);
   renderAssist({ scroll: true });
@@ -1232,31 +1260,41 @@ function growInput() {
 
 async function sendAssist(e) {
   e?.preventDefault();
-  const text = $('#asInput').value.trim();
-  if (!text) return;
+  const typed = $('#asInput').value.trim();
+  let text = typed;
+  if (!text && !asCtx.quote) return;
+  if (asCtx.quote) {
+    const q = asCtx.quote.trim().split('\n').map(l => '> ' + l).join('\n');
+    text = `${text || 'Voir ce passage.'}\n\nPassage de ma note du jour :\n${q}`;
+  }
   const btn = $('#asSend');
   btn.disabled = true;
   try {
+    if (currentView === 'notes') await notes.flush(); // la note jointe doit être à jour pour Claude
     const now = new Date();
     const note = assist.buildConsigne(text, {
       lien: asCtx.lien ? `[[${asCtx.lien}]]` : null,
       suite: asCtx.suite ? `[[${asCtx.suite}]]` : null,
       date: now,
+      source: currentView === 'notes' ? 'notes' : 'calendrier',
     });
-    const item = await graph.createFile(asDir(), assist.fileNameFor(text, now), note);
+    const item = await graph.createFile(asDir(), assist.fileNameFor(typed || text, now), note);
     asCache.files[item.id] = { id: item.id, name: item.name, eTag: item.eTag, text: note, created: item.createdDateTime || now.toISOString() };
     LS.set('fc.assist', asCache);
     $('#asInput').value = '';
     growInput();
-    asCtx = { lien: null, lienLabel: '', suite: null, suiteLabel: '' };
+    asCtx = { ...AS_EMPTY };
     renderAssist({ scroll: true });
     toast('Consigne envoyée. Claude la traitera ce soir.');
-  } catch (err) { handleError(err); } finally { btn.disabled = false; }
+  } catch (err) {
+    if (err instanceof TypeError && !navigator.onLine) toastError("Pas de réseau : la consigne n'est pas partie, réessaie plus tard.");
+    else handleError(err);
+  } finally { btn.disabled = false; }
 }
 
 async function onAssistClick(e) {
   const clr = e.target.closest('[data-clear]');
-  if (clr) { asCtx[clr.dataset.clear] = null; renderAssistCtx(); return; }
+  if (clr) { asCtx[clr.dataset.clear] = clr.dataset.clear === 'quote' ? '' : null; renderAssistCtx(); return; }
   const act = e.target.closest('.as-act');
   if (!act) return;
   const f = asCache.files[act.closest('.as-item').dataset.id];
@@ -1342,15 +1380,40 @@ function renderAuthState() {
   $('#setAuthState').textContent = logged ? '✓ Connecté à OneDrive' : 'Non connecté';
   $('#setLogin').hidden = logged;
   $('#setLogout').hidden = !logged;
-  $('#setVaultBox').classList.toggle('disabled', !logged);
+  for (const s of document.querySelectorAll('#dlgSettings .needs-login')) s.classList.toggle('disabled', !logged);
 }
+
+// Note quotidienne (onglet Notes)
+function fillDaily(c = {}) {
+  c = { ...daily.DEFAULT_DAILY, ...c };
+  $('#setDailyFolder').value = c.folder || '';
+  $('#setDailyFormat').value = c.format || '';
+  $('#setDailyTemplate').value = c.template || '';
+  $('#setDailyLocale').value = c.locale || 'fr';
+  $('#setDailySource').textContent = c.source ? `Réglages repris de : ${c.source}` : '';
+  $('#setDailySource').dataset.source = c.source || '';
+  updateDailyPreview();
+}
+function readDailyForm() {
+  return {
+    ...daily.DEFAULT_DAILY,
+    folder: $('#setDailyFolder').value.trim().replace(/^\/+|\/+$/g, ''),
+    format: $('#setDailyFormat').value.trim() || 'YYYY-MM-DD',
+    template: $('#setDailyTemplate').value.trim(),
+    locale: $('#setDailyLocale').value,
+    ...($('#setDailySource').dataset.source ? { source: $('#setDailySource').dataset.source } : {}),
+  };
+}
+function updateDailyPreview() { $('#setDailyPreview').textContent = notes.previewPath(readDailyForm()); }
 
 function openSettings({ from } = {}) {
   $('#setClientId').value = settings.clientId;
   $('#setRedirect').textContent = auth.redirectUri();
   $('#setVault').value = settings.vaultPath;
   $('#setAssistFolder').value = settings.assistFolder || '_IA/consignes';
-  $('#setView').value = normView(settings.initialView) || 'agenda';
+  $('#setView').value = settings.startView === 'last' || !settings.startView ? 'last' : (normView(settings.startView) || 'last');
+  fillDaily(settings.daily);
+  $('#setNoteSize').value = settings.noteTextSize || 'm';
   $('#setFirstDay').value = String(settings.firstDay);
   $('#setTheme').value = settings.theme;
   $('#setSnippets').checked = !!settings.useSnippets;
@@ -1365,7 +1428,7 @@ function openSettings({ from } = {}) {
   $('#setDrag').value = settings.dragMode || 'confirm';
   $('#setAgendaWeeks').checked = settings.agendaWeeks !== false;
   $('#setAgendaEmpty').checked = settings.agendaEmpty !== false;
-  const tabs = Array.isArray(settings.tabs) && settings.tabs.length ? settings.tabs : ['agenda', 'dayGridMonth'];
+  const tabs = tabsOf();
   for (const cb of document.querySelectorAll('#setTabs input')) cb.checked = tabs.includes(cb.value);
   settings.sources = settings.sources.map(s => ({ ...s }));
   fillDefaultCal();
@@ -1482,6 +1545,7 @@ function applyPrefs() {
     snip.textContent = SNIPPET_BRIDGE + '\n' + css;
   } else if (snip) snip.remove();
   root.style.setProperty('--fs', { s: '14px', m: '15px', l: '17px' }[settings.textSize] || '15px');
+  root.style.setProperty('--note-fs', { s: '.95rem', m: '1.05rem', l: '1.2rem' }[settings.noteTextSize] || '1.05rem');
   document.body.dataset.monthLines = String(settings.monthLines ?? 2);
   applyTabs();
   if (!calendar) return;
@@ -1500,7 +1564,9 @@ function readSettingsForm() {
   settings.clientId = $('#setClientId').value.trim();
   settings.vaultPath = $('#setVault').value.trim().replace(/^\/+|\/+$/g, '');
   settings.assistFolder = $('#setAssistFolder').value.trim().replace(/^\/+|\/+$/g, '') || '_IA/consignes';
-  settings.initialView = $('#setView').value;
+  settings.startView = $('#setView').value;
+  settings.daily = readDailyForm();
+  settings.noteTextSize = $('#setNoteSize').value;
   settings.firstDay = +$('#setFirstDay').value;
   settings.theme = $('#setTheme').value;
   settings.useSnippets = $('#setSnippets').checked;
@@ -1540,7 +1606,6 @@ async function importPluginConfig() {
     const v = d.initialView?.mobile;
     if (normView(v)) settings.initialView = normView(v);
     settings.defaultCalId = d.defaultCalendarId || null;
-    $('#setView').value = settings.initialView;
     $('#setFirstDay').value = String(settings.firstDay);
     renderSources();
     return srcs.length;
@@ -1577,6 +1642,14 @@ function wireSettings() {
     const n = await importPluginConfig();
     toast(`${n} calendrier(s) importé(s)`);
   });
+  $('#setImportDaily').onclick = withBusy(async () => {
+    const vault = $('#setVault').value.trim().replace(/^\/+|\/+$/g, '');
+    if (!vault) throw new Error("Indique d'abord le chemin du coffre");
+    const c = await notes.readObsidianConfig(vault);
+    fillDaily({ ...c, locale: $('#setDailyLocale').value || 'fr' });
+    toast(`Note quotidienne : ${c.source === 'défaut' ? "réglages par défaut d'Obsidian" : c.source}`);
+  });
+  for (const id of ['#setDailyFolder', '#setDailyFormat', '#setDailyLocale']) $(id).addEventListener('input', updateDailyPreview);
   for (let h = 0; h <= 23; h++) $('#setSlotMin').add(new Option(`${h} h`, String(h)));
   for (let h = 1; h <= 24; h++) $('#setSlotMax').add(new Option(`${h} h`, String(h)));
   $('#setSources').addEventListener('input', () => fillDefaultCal());
@@ -1608,8 +1681,11 @@ function wireSettings() {
   };
   $('#setForm').onsubmit = e => {
     e.preventDefault();
+    const before = JSON.stringify([settings.vaultPath, settings.daily]);
     readSettingsForm();
+    if ($('#setDailySource').dataset.source) settings.dailyImported = true;
     saveSettings();
+    if (JSON.stringify([settings.vaultPath, settings.daily]) !== before) notes.reload();
     for (const [id, f] of Object.entries(cache.files)) if (!sourceById(f.calId)) delete cache.files[id];
     saveCache();
     closeDlg($('#dlgSettings'));
@@ -1647,9 +1723,9 @@ function flashToday() {
 
 /** Affiche seulement les onglets choisis dans les réglages. */
 function applyTabs() {
-  const tabs = Array.isArray(settings.tabs) && settings.tabs.length ? settings.tabs : ['agenda', 'dayGridMonth'];
+  const tabs = tabsOf();
   for (const b of document.querySelectorAll('#viewNav button')) b.hidden = !tabs.includes(b.dataset.view);
-  $('#viewNav').hidden = false; // toujours là : l'onglet Notes y est
+  $('#viewNav').hidden = tabs.length < 2;
 }
 
 function setActiveView(type) {
@@ -1661,7 +1737,7 @@ function initCalendar() {
   calendar = new FullCalendar.Calendar($('#cal'), {
     locale: 'fr',
     firstDay: settings.firstDay,
-    initialView: normView(saved) && normView(saved) !== 'agenda' ? normView(saved) : 'timeGridWeek',
+    initialView: normView(saved) && !['agenda', 'notes'].includes(normView(saved)) ? normView(saved) : 'timeGridWeek',
     headerToolbar: false,
     footerToolbar: false,
     views: {
@@ -1700,15 +1776,19 @@ function initCalendar() {
     eventDrop: onMove,
     eventResize: onMove,
     datesSet: info => {
-      if (currentView === 'agenda') return;
+      if (currentView === 'agenda' || currentView === 'notes') return;
       $('#hdrTitleText').textContent = info.view.title;
     },
   });
   calendar.render();
   {
-    const tabs = Array.isArray(settings.tabs) && settings.tabs.length ? settings.tabs : ['agenda', 'dayGridMonth'];
-    let v = normView(LS.get('fc.view', null)) || normView(settings.initialView);
-    if (!tabs.includes(v)) v = tabs.includes(normView(settings.initialView)) ? normView(settings.initialView) : tabs[0];
+    // Onglet de départ : demandé par l'adresse (raccourci), choisi dans les réglages, ou le dernier ouvert
+    const tabs = tabsOf();
+    const q = new URLSearchParams(location.search).get('view');
+    const fixed = settings.startView && settings.startView !== 'last' ? normView(settings.startView) : null;
+    let v = normView(q) || fixed || normView(LS.get('fc.view', null)) || normView(settings.initialView);
+    if (!normView(q) && !tabs.includes(v)) v = tabs.includes(normView(settings.initialView)) ? normView(settings.initialView) : tabs[0];
+    if (q) history.replaceState(null, '', location.pathname);
     setView(v);
   }
 
@@ -1738,11 +1818,14 @@ function wireUI() {
   $('#todayNum').textContent = new Date().getDate();
   $('#hdrPrev').onclick = nav.prev;
   $('#hdrNext').onclick = nav.next;
-  $('#hdrTitle').onclick = nav.today;
+  $('#hdrTitle').onclick = nav.title;
   $('#btnToday').onclick = nav.today;
   $('#btnSearch').onclick = openSearch;
   $('#btnAssist').onclick = () => openAssist();
-  $('#btnSync').onclick = () => sync();
+  $('#btnSync').onclick = () => { if (currentView === 'notes') notes.refresh(); sync(); loadAssist({ quiet: true }); };
+  $('#btnMode').onclick = notes.toggleMode;
+  $('#menuNotes').onclick = () => { closeDlg($('#dlgMenu')); setView('notes'); };
+  $('#ntSetupBtn').onclick = () => openSettings();
   $('#btnMenu').onclick = () => { renderMenu(); openDlg($('#dlgMenu')); };
   $('#menuSettings').onclick = () => openSettings({ from: $('#dlgMenu') });
   for (const b of document.querySelectorAll('#menuMode button')) {
@@ -1816,6 +1899,20 @@ function wireUI() {
   $('#asInput').addEventListener('input', growInput);
   $('#asInput').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) sendAssist(e); });
   $('#asRefresh').onclick = () => loadAssist().then(() => renderAssist({ scroll: true }));
+  $('#asAttach').onclick = () => {
+    const n = notes.current();
+    if (asCtx.lien === n.rel) { asCtx.lien = null; asCtx.lienLabel = ''; } else { asCtx.lien = n.rel; asCtx.lienLabel = n.label; }
+    renderAssistCtx();
+  };
+  // Texte sélectionné dans la note → « Envoyer à l'IA »
+  document.addEventListener('selectionchange', updateSelAsk);
+  $('#dlgAssist').addEventListener('close', updateSelAsk);
+  $('#selAsk').addEventListener('pointerdown', e => e.preventDefault()); // garde la sélection au moment du clic
+  $('#selAsk').onclick = () => {
+    const q = notes.selection();
+    const n = notes.current();
+    if (q) openAssist({ quote: q, lien: n.rel, lienLabel: n.label });
+  };
   $('#dlgAssist').addEventListener('click', onAssistClick);
   $('#dtAsk').onclick = () => {
     const file = cache.files[detail.fileId];
@@ -1861,6 +1958,8 @@ function wireUI() {
   });
 }
 
+function updateSelAsk() { $('#selAsk').hidden = !notes.selection() || $('#dlgAssist').open; }
+
 async function start() {
   if ('serviceWorker' in navigator) {
     // Quand une nouvelle version de l'appli s'installe, on recharge une fois pour l'utiliser.
@@ -1874,6 +1973,13 @@ async function start() {
     navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).catch(() => {});
   }
   applyPrefs();
+  notes.init({
+    settings: () => settings,
+    patchSettings: p => { Object.assign(settings, p); saveSettings(); },
+    toast, handleError, openDlg, closeDlg,
+    setTitle: t => { $('#hdrTitleText').textContent = t; },
+    onSelection: () => updateSelAsk(),
+  });
   wireUI();
   initCalendar();
   updateMenuDot();
@@ -1903,6 +2009,7 @@ async function start() {
   }
   sync({ quiet: true });
   loadAssist({ quiet: true });
+  if (redirect?.ok) notes.reload(); // connexion tout juste terminée : la note du jour peut maintenant être lue
   if (new URLSearchParams(location.search).has('assist')) { history.replaceState(null, '', location.pathname); openAssist(); }
 }
 

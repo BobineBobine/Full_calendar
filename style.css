@@ -108,8 +108,7 @@ body.busy #btnSync svg, body.busy #menuSyncBtn svg { animation: spin .9s linear 
   display: flex; gap: 4px; margin: 6px 10px calc(8px + env(safe-area-inset-bottom));
   padding: 4px; background: var(--surface); border-radius: 14px;
 }
-#viewNav button, #viewNav .nav-notes { flex: 1; border: 0; background: transparent; min-height: 36px; padding: 6px 0; border-radius: 10px; font-size: .86rem; font-weight: 600; color: var(--muted); }
-#viewNav .nav-notes { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; color: var(--accent); }
+#viewNav button { flex: 1; border: 0; background: transparent; min-height: 36px; padding: 6px 0; border-radius: 10px; font-size: .86rem; font-weight: 600; color: var(--muted); }
 #viewNav button[aria-pressed="true"] { background: var(--bg); color: var(--fg); box-shadow: 0 1px 4px rgba(0,0,0,.12); }
 
 #fab {
@@ -488,3 +487,43 @@ body[data-month-lines="3"] { --ml: 3; }
 .as-compose { display: flex; align-items: flex-end; gap: 8px; }
 .as-compose textarea { resize: none; min-height: 44px; max-height: 180px; }
 .as-compose .ib.primary { flex: none; width: 44px; height: 44px; border-radius: 50%; }
+
+/* ---- Onglet Notes (note quotidienne) ---- */
+body.view-notes .cal-only, body:not(.view-notes) .notes-only { display: none !important; }
+#hdrTitle { position: relative; }
+/* Sélecteur de date natif, ouvert en touchant le titre (onglet Notes) */
+.nt-pick { position: absolute; left: 40px; top: 40px; width: 1px; height: 1px; opacity: 0; pointer-events: none; border: 0; padding: 0; min-height: 0 !important; }
+.appbar { position: relative; }
+
+#notesView { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.nt-sub { display: flex; gap: 10px; align-items: center; padding: 0 14px 4px; font-size: .76rem; color: var(--muted); min-height: 20px; }
+#ntPath { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit; text-decoration: none; }
+#ntState { flex: none; font-weight: 600; }
+#ntState.saving { color: var(--muted); }
+#ntState.dirty { color: var(--accent); }
+#ntState.offline, #ntState.error { color: var(--danger); }
+
+#ntMain { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0 8px; }
+#editor {
+  flex: 1; min-height: 0; resize: none; width: 100%;
+  background: var(--bg) !important; border: 0 !important; border-radius: 0; padding: 8px 6px 30vh !important;
+  font-size: var(--note-fs, 1.05rem); line-height: 1.6; tab-size: 4; outline: none;
+}
+#editor:focus { background: var(--bg); box-shadow: none; }
+#preview { flex: 1; min-height: 0; overflow-y: auto; margin: 0; background: transparent; padding: 8px 6px 30vh; font-size: var(--note-fs, 1.05rem); }
+#preview h3 { font-size: 1.3em; } #preview h4 { font-size: 1.15em; } #preview h5, #preview h6 { font-size: 1.02em; }
+.nt-setup { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; text-align: center; color: var(--muted); }
+
+#btnMode[aria-pressed="true"] { color: var(--accent); }
+#asAttach { flex: none; width: 44px; height: 44px; color: var(--muted); }
+#asAttach[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
+.as-quote { white-space: pre-wrap; max-height: 4.5em; overflow: hidden; }
+
+/* Bouton flottant quand du texte est sélectionné dans la note */
+#selAsk {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(70px + env(safe-area-inset-bottom));
+  background: var(--accent); color: var(--accent-fg); border: 0; border-radius: 999px; padding: 8px 16px; font-weight: 700;
+  box-shadow: var(--shadow); z-index: 20;
+}
+#selAsk:active { transform: translateX(-50%) scale(.96); }
+body.view-notes #toast { bottom: calc(80px + env(safe-area-inset-bottom)); }

@@ -37,7 +37,7 @@
       "name": "Notes du jour",
       "short_name": "Notes",
       "description": "Ouvrir la note quotidienne",
-      "url": "notes/",
+      "url": "./?view=notes",
       "icons": [
         {
           "src": "icons/notes-192.png",
